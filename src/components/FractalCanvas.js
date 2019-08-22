@@ -72,16 +72,24 @@ const FractalCanvas = ({ width, height }) => {
     }
 
     const clickHandler = (e) => {
-      console.log(`click: ${e.offsetX}, ${e.offsetY}`);
-      setNav({ ...nav, x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), block: 0, t: Math.random() });
+      console.log(`click: ${e.offsetX}, ${e.offsetY}`, e);
+      if (!e.ctrlKey) {
+        setNav({ ...nav, x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), z: nav.z * 2, block: 0, t: Math.random() });
+      } else if (nav.z > 1) {
+        setNav({ ...nav, x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), z: nav.z / 2, block: 0, t: Math.random() });
+      }
     };
-  
+
     const wheelHandler = (e) => {
       console.log(`wheel: ${e.deltaY}`, e);
       if (e.deltaY < 0) {
         setNav({ x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), z: nav.z * 2, block: 0, t: Math.random() });
-      } else if (nav.z > 1) {
-        setNav({ x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), z: nav.z / 2, block: 0, t: Math.random() });
+      } else {
+        if (nav.z > 1) {
+          setNav({ x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), z: nav.z / 2, block: 0, t: Math.random() });
+        } else {
+          setNav({ x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), block: 0, t: Math.random() });
+        }
       }
     };
 
