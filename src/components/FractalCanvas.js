@@ -3,11 +3,12 @@ import PaletteGenerator from '../util/PaletteGenerator';
 
 const FractalCanvas = ({ width, height }) => {
 
-  const [nav, setNav] = useState({ x: -0.5, y: 0, z: 1, block: 0, t: Math.random() });
+  const [nav, setNav] = useState({ x: -0.5, y: 0, z: 1, step: 0, t: Math.random() });
 
   const canvasRef = useRef(null);
+  const sizePropsRef = useRef({ width: width, height: height });
 
-  //console.log(`canvas: ${width} x ${height} | (${nav.x},${nav.y}) x${nav.z}`);
+  // console.log(`canvas: ${width} x ${height} | (${nav.x},${nav.y}) x${nav.z}`);
 
   const max = 500;
   const palette = PaletteGenerator(max);
@@ -24,7 +25,7 @@ const FractalCanvas = ({ width, height }) => {
   const xscale = Math.abs(x1 - x0) / width;
   const yscale = Math.abs(y1 - y0) / height;
 
-  const blocks = [100, 50, 20, 4, 1];
+  const steps = [100, 50, 20, 4, 1];
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -33,7 +34,13 @@ const FractalCanvas = ({ width, height }) => {
     let t0 = performance.now();
     let px, py;
     let pscale = palette.length / max;
-    let bl = blocks[nav.block];
+
+    if (sizePropsRef.current.width !== width || sizePropsRef.current.height !== height) {
+      nav.step = 0;
+      sizePropsRef.current = { width: width, height: height };
+    }
+
+    let bl = steps[nav.step];
 
     for (py = 0; py < height; py += bl) {
       for (px = 0; px < width; px += bl) {
@@ -63,30 +70,31 @@ const FractalCanvas = ({ width, height }) => {
     }
 
     let t1 = performance.now();
-    console.log(`Render(${bl}) took ${(t1 - t0)} milliseconds.`);
+    console.log(`Canvas render: ${width} x ${height} | (${nav.x},${nav.y}) x${nav.z} | [${bl}] ${Math.round((t1 - t0) * 10000) / 10000} ms.`);
 
-    if (++nav.block < blocks.length) {
-      setNav({ ...nav, block: nav.block, t: Math.random() });
+    //console.log(nav);
+    if (nav.step < steps.length - 1) {
+      setNav({ ...nav, step: ++nav.step, t: Math.random() });
     }
 
     const clickHandler = (e) => {
       console.log(`click: ${e.offsetX}, ${e.offsetY}`, e);
       if (!e.ctrlKey) {
-        setNav({ ...nav, x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), z: nav.z * 2, block: 0, t: Math.random() });
+        setNav({ ...nav, x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), z: nav.z * 2, step: 0, t: Math.random() });
       } else if (nav.z > 1) {
-        setNav({ ...nav, x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), z: nav.z / 2, block: 0, t: Math.random() });
+        setNav({ ...nav, x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), z: nav.z / 2, step: 0, t: Math.random() });
       }
     };
 
     const wheelHandler = (e) => {
       console.log(`wheel: ${e.deltaY}`, e);
       if (e.deltaY < 0) {
-        setNav({ x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), z: nav.z * 2, block: 0, t: Math.random() });
+        setNav({ x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), z: nav.z * 2, step: 0, t: Math.random() });
       } else {
         if (nav.z > 1) {
-          setNav({ x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), z: nav.z / 2, block: 0, t: Math.random() });
+          setNav({ x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), z: nav.z / 2, step: 0, t: Math.random() });
         } else {
-          setNav({ x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), block: 0, t: Math.random() });
+          setNav({ x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), step: 0, t: Math.random() });
         }
       }
     };
@@ -98,10 +106,10 @@ const FractalCanvas = ({ width, height }) => {
       canvas.removeEventListener('click', clickHandler);
       canvas.removeEventListener('wheel', wheelHandler);
     });
-  }, [palette, blocks, nav, height, width, x0, xscale, y0, yscale]);
+  }, [width, height, palette, steps, nav, x0, xscale, y0, yscale]);
 
   return (
-    <canvas ref={canvasRef} width={width} height={height} style={{ border: `1px solid black` }}>
+    <canvas ref={canvasRef} width={width} height={height}>
     </canvas>
   );
 }
