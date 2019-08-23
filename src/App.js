@@ -1,6 +1,7 @@
 import React, { useRef, useState, useEffect } from 'react';
 import './App.css';
 import FractalCanvas from './components/FractalCanvas';
+import SideDrawer from './components/SideDrawer';
 
 function App() {
 
@@ -33,6 +34,7 @@ function App() {
 
   return (
     <div className="App" ref={outerDivRef}>
+      <SideDrawer></SideDrawer>
       <FractalCanvas width={canvasSize.width} height={canvasSize.height} step={0}></FractalCanvas>
     </div>
   );
