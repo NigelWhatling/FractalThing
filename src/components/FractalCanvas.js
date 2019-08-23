@@ -30,25 +30,25 @@ const FractalCanvas = ({ width, height }) => {
 
   useEffect(() => {
     const canvas = canvasRef.current;
-    var ctx = canvas.getContext("2d");
+    let ctx = canvas.getContext("2d");
 
-    var t0 = performance.now();
-    var px, py;
-    var pscale = palette.length / max;
-    var bl = blocks[nav.block];
+    let t0 = performance.now();
+    let px, py;
+    let pscale = palette.length / max;
+    let bl = blocks[nav.block];
 
     for (py = 0; py < height; py += bl) {
       for (px = 0; px < width; px += bl) {
 
-        var xs = x0 + (px * xscale);
-        var ys = y0 + (py * yscale);
-        var x = 0;
-        var y = 0;
-        var i = 0;
+        let xs = x0 + (px * xscale);
+        let ys = y0 + (py * yscale);
+        let x = 0;
+        let y = 0;
+        let i = 0;
 
-        var r2 = 0;
-        var i2 = 0;
-        var z2 = 0;
+        let r2 = 0;
+        let i2 = 0;
+        let z2 = 0;
 
         while (r2 + i2 <= 4 && i < max) {
           x = r2 - i2 + xs;
@@ -64,7 +64,7 @@ const FractalCanvas = ({ width, height }) => {
       }
     }
 
-    var t1 = performance.now();
+    let t1 = performance.now();
     console.log(`Render(${bl}) took ${(t1 - t0)} milliseconds.`);
 
     if (++nav.block < blocks.length) {
