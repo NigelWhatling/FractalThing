@@ -10,8 +10,8 @@ const FractalCanvas = ({ width, height }) => {
 
   // console.log(`canvas: ${width} x ${height} | (${nav.x},${nav.y}) x${nav.z}`);
 
-  const max = 500;
-  const palette = PaletteGenerator(max);
+  const max = 256;
+  const palette = PaletteGenerator(Math.max(max, 1000));
 
   // Mandelbrot set range: -2.5 > x < 1    -1 > y < 1
   const BASE_NUMBER_RANGE = 1;
@@ -33,7 +33,7 @@ const FractalCanvas = ({ width, height }) => {
 
     let t0 = performance.now();
     let px, py;
-    let pscale = palette.length / max;
+    let pscale = (palette.length - 1) / max;
 
     if (sizePropsRef.current.width !== width || sizePropsRef.current.height !== height) {
       nav.step = 0;
@@ -64,7 +64,24 @@ const FractalCanvas = ({ width, height }) => {
           i++;
         }
 
-        ctx.fillStyle = i < max ? palette[Math.round(pscale * i)] : `#000`;
+        const smooth = true;
+        let rgb;
+
+        if (smooth) {
+          if (i < max) {
+            let log_zn = Math.log(r2 + i2) / 2;
+            let nu = Math.log(log_zn / Math.log(2)) / Math.log(2);
+            i = i + 1 - nu;
+          }
+
+          let rgb1 = i < max - 1 ? palette[Math.floor(pscale * i)] : [0, 0, 0];
+          let rgb2 = i < max - 1 ? palette[Math.floor(pscale * (i + 1))] : [0, 0, 0];
+          rgb = lerp(rgb1, rgb2, i % 1);
+        } else {
+          rgb = i < max ? palette[Math.floor(pscale * i)] : [0, 0, 0];
+        }
+
+        ctx.fillStyle = `rgb(${Math.floor(rgb[0])},${Math.floor(rgb[1])},${Math.floor(rgb[2])})`;
         ctx.fillRect(px, py, bl, bl);
       }
     }
@@ -107,6 +124,10 @@ const FractalCanvas = ({ width, height }) => {
       canvas.removeEventListener('wheel', wheelHandler);
     });
   }, [width, height, palette, steps, nav, x0, xscale, y0, yscale]);
+
+  const lerp = (rgb1, rgb2, t) => {
+    return [(1 - t) * rgb1[0] + t * rgb2[0], (1 - t) * rgb1[1] + t * rgb2[1], (1 - t) * rgb1[2] + t * rgb2[2]];
+  }
 
   return (
     <canvas ref={canvasRef} width={width} height={height}>

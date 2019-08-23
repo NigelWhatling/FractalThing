@@ -80,9 +80,10 @@ const PaletteGenerator = (size) => {
 
     const palette = [];
     var i;
-    for (i = 0; i < size; i++) {
+    for (i = 0; i <= size; i++) {
         var i0 = i / size;
-        palette[i] = `#${('00' + Math.round(interpolantR(i0)).toString(16)).substr(-2)}${('00' + Math.round(interpolantG(i0)).toString(16)).substr(-2)}${('00' + Math.round(interpolantB(i0)).toString(16)).substr(-2)}`;
+        palette[i] = [interpolantR(i0), interpolantG(i0), interpolantB(i0)];
+        //palette[i] = `rgb(${Math.floor(interpolantR(i0))},${Math.floor(interpolantG(i0))},${Math.floor(interpolantB(i0))})`;
     }
 
     return palette;
