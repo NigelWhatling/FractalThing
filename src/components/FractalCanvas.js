@@ -12,16 +12,14 @@ const FractalCanvas = ({ width, height }) => {
   const max = 500;
   const palette = PaletteGenerator(max);
 
-  // const x0 = -2.5;
-  // const x1 = 1;
-  // const y0 = -1;
-  // const y1 = 1;
+  // Mandelbrot set range: -2.5 > x < 1    -1 > y < 1
+  const BASE_NUMBER_RANGE = 1;
 
-  const r = height / width;
-  const x0 = nav.x - ((1.75 * r) / nav.z);
-  const x1 = nav.x + ((1.75 * r) / nav.z);
-  const y0 = nav.y - (1 / nav.z);
-  const y1 = nav.y + (1 / nav.z);
+  const ratio = width / height;
+  const x0 = nav.x - ((BASE_NUMBER_RANGE * ratio) / nav.z);
+  const x1 = nav.x + ((BASE_NUMBER_RANGE * ratio) / nav.z);
+  const y0 = nav.y - (BASE_NUMBER_RANGE / nav.z);
+  const y1 = nav.y + (BASE_NUMBER_RANGE / nav.z);
 
   const xscale = Math.abs(x1 - x0) / width;
   const yscale = Math.abs(y1 - y0) / height;
