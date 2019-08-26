@@ -1,5 +1,6 @@
 import React, { useRef, useState, useEffect } from 'react';
 import './App.css';
+import { BrowserRouter, Route, Switch } from "react-router-dom";
 import FractalCanvas from './components/FractalCanvas';
 
 function App() {
@@ -33,7 +34,13 @@ function App() {
 
   return (
     <div className="App" ref={outerDivRef}>
-      <FractalCanvas width={canvasSize.width} height={canvasSize.height} step={0}></FractalCanvas>
+      <BrowserRouter>
+        <Switch>
+          <Route path='/:algorithm([a-z]+)?/:loc(@[\-\d\.\,xX]+)?' component={props =>
+            <FractalCanvas props={props.match.params} query={props.location.search} width={canvasSize.width} height={canvasSize.height}></FractalCanvas>
+          }></Route>
+        </Switch>
+      </BrowserRouter>
     </div>
   );
 }
