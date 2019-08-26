@@ -1,9 +1,38 @@
 import React, { useState, useRef, useEffect } from 'react';
+import queryString from 'query-string';
 import PaletteGenerator from '../util/PaletteGenerator';
 
-const FractalCanvas = ({ width, height }) => {
+const parseFloatWithDefault = (str, def) => {
+  let val = parseFloat(str);
+  if (val === undefined || isNaN(val)) {
+    return def;
+  }
+  return val;
+};
 
-  const [nav, setNav] = useState({ x: -0.5, y: 0, z: 1, step: 0, t: Math.random() });
+const lerpRgb = (rgb1, rgb2, t) => {
+  return [(1 - t) * rgb1[0] + t * rgb2[0], (1 - t) * rgb1[1] + t * rgb2[1], (1 - t) * rgb1[2] + t * rgb2[2]];
+}
+
+const FractalCanvas = ({ width, height, query, props }) => {
+
+  //console.log(props);
+  const queryProps = queryString.parse(query);
+
+  let navProps = { x: -0.5, y: 0, z: 1 };
+
+  if (props.loc) {
+    let matches = props.loc.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)(?:x(\d+(?:\.\d+)?))/i);
+    if (matches) {
+      navProps = {
+        x: parseFloatWithDefault(matches[1], -0.5),
+        y: parseFloatWithDefault(matches[2], 0),
+        z: parseFloatWithDefault(matches[3], 1),
+      }
+    }
+  }
+
+  const [nav, setNav] = useState({ ...navProps, step: 0, t: Math.random() });
 
   const canvasRef = useRef(null);
   const sizePropsRef = useRef({ width: width, height: height });
@@ -36,8 +65,8 @@ const FractalCanvas = ({ width, height }) => {
     let pscale = (palette.length - 1) / max;
 
     if (sizePropsRef.current.width !== width || sizePropsRef.current.height !== height) {
-      nav.step = 0;
       sizePropsRef.current = { width: width, height: height };
+      setNav({ ...nav, step: 0 });
     }
 
     let bl = steps[nav.step];
@@ -76,7 +105,7 @@ const FractalCanvas = ({ width, height }) => {
 
           let rgb1 = i < max - 1 ? palette[Math.floor(pscale * i)] : [0, 0, 0];
           let rgb2 = i < max - 1 ? palette[Math.floor(pscale * (i + 1))] : [0, 0, 0];
-          rgb = lerp(rgb1, rgb2, i % 1);
+          rgb = lerpRgb(rgb1, rgb2, i % 1);
         } else {
           rgb = i < max ? palette[Math.floor(pscale * i)] : [0, 0, 0];
         }
@@ -125,9 +154,6 @@ const FractalCanvas = ({ width, height }) => {
     });
   }, [width, height, palette, steps, nav, x0, xscale, y0, yscale]);
 
-  const lerp = (rgb1, rgb2, t) => {
-    return [(1 - t) * rgb1[0] + t * rgb2[0], (1 - t) * rgb1[1] + t * rgb2[1], (1 - t) * rgb1[2] + t * rgb2[2]];
-  }
 
   return (
     <canvas ref={canvasRef} width={width} height={height}>
