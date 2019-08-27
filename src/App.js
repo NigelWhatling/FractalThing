@@ -1,7 +1,9 @@
 import React, { useRef, useState, useEffect } from 'react';
-import './App.css';
+import './App.scss';
 import { BrowserRouter, Route, Switch } from "react-router-dom";
 import FractalCanvas from './components/FractalCanvas';
+import SideDrawer from './components/SideDrawer';
+
 
 function App() {
 
@@ -33,15 +35,16 @@ function App() {
   }, [outerDivRef]);
 
   return (
-    <div className="App" ref={outerDivRef}>
-      <BrowserRouter>
-        <Switch>
-          <Route path='/:algorithm([a-z]+)?/:loc(@[\-\d\.\,xX]+)?' component={props =>
+    <BrowserRouter>
+      <Switch>
+        <Route path='/:algorithm([a-z]+)?/:loc(@[\-\d\.\,xX]+)?' component={props =>
+          <div className="App" ref={outerDivRef}>
+            <SideDrawer></SideDrawer>
             <FractalCanvas props={props.match.params} query={props.location.search} width={canvasSize.width} height={canvasSize.height}></FractalCanvas>
-          }></Route>
-        </Switch>
-      </BrowserRouter>
-    </div>
+          </div>
+        }></Route>
+      </Switch>
+    </BrowserRouter >
   );
 }
 
