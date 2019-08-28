@@ -1,6 +1,8 @@
 import React, { useState, useRef, useEffect } from 'react';
-import queryString from 'query-string';
+//import queryString from 'query-string';
 import PaletteGenerator from '../util/PaletteGenerator';
+import MandelbrotWorker from '../workers/mandelbrotWorker';
+import * as WorkerCommands from '../workers/workerCommands';
 
 const parseFloatWithDefault = (str, def) => {
   let val = parseFloat(str);
@@ -17,7 +19,7 @@ const lerpRgb = (rgb1, rgb2, t) => {
 const FractalCanvas = ({ width, height, query, props }) => {
 
   //console.log(props);
-  const queryProps = queryString.parse(query);
+  //const queryProps = queryString.parse(query);
 
   let navProps = { x: -0.5, y: 0, z: 1 };
 
@@ -56,7 +58,10 @@ const FractalCanvas = ({ width, height, query, props }) => {
 
   const steps = [100, 50, 20, 4, 1];
 
+  const worker_count = 8;
+
   useEffect(() => {
+
     const canvas = canvasRef.current;
     let ctx = canvas.getContext("2d");
 
@@ -70,53 +75,63 @@ const FractalCanvas = ({ width, height, query, props }) => {
     }
 
     let bl = steps[nav.step];
+    let smooth = true;
+
+    const paintHandler = (px, py, i) => {
+      let rgb;
+
+      if (smooth) {
+        let rgb1 = i < max - 1 ? palette[Math.floor(pscale * i)] : [0, 0, 0];
+        let rgb2 = i < max - 1 ? palette[Math.floor(pscale * (i + 1))] : [0, 0, 0];
+        rgb = lerpRgb(rgb1, rgb2, i % 1);
+      } else {
+        rgb = i < max ? palette[Math.floor(pscale * i)] : [0, 0, 0];
+      }
+
+      ctx.fillStyle = `rgb(${Math.floor(rgb[0])},${Math.floor(rgb[1])},${Math.floor(rgb[2])})`;
+      ctx.fillRect(px, py, bl, bl);
+    };
+
+    const code = MandelbrotWorker.toString();
+    const blob = new Blob(['(' + code + ')()']);
+    const blobURL = URL.createObjectURL(blob);
+
+    const workers = [];
+    for (let i = 0; i < worker_count; i++) {
+      let worker = new Worker(blobURL);
+      worker.addEventListener('message', ev => {
+        //console.log('worker', ev.data);
+        paintHandler(ev.data.px, ev.data.py, ev.data.i);
+      });
+      workers[i] = worker;
+    }
+
+    // for (let i = 0; i < worker_count; i++) {
+    //   workers[i].postMessage({ cmd: 'start', msg: 'blah' });
+    // }
+
+    let w = 0;
 
     for (py = 0; py < height; py += bl) {
       for (px = 0; px < width; px += bl) {
 
-        let xs = x0 + (px * xscale);
-        let ys = y0 + (py * yscale);
-        let x = 0;
-        let y = 0;
-        let i = 0;
+        workers[(w++ % worker_count)].postMessage({
+          cmd: WorkerCommands.START,
+          px: px,
+          py: py,
+          xs: x0 + (px * xscale),
+          ys: y0 + (py * yscale),
+          max: max,
+          smooth: smooth
+        });
 
-        let r2 = 0;
-        let i2 = 0;
-        let z2 = 0;
-
-        while (r2 + i2 <= 4 && i < max) {
-          x = r2 - i2 + xs;
-          y = z2 - r2 - i2 + ys;
-          r2 = x * x;
-          i2 = y * y;
-          z2 = (x + y) * (x + y);
-          i++;
-        }
-
-        const smooth = true;
-        let rgb;
-
-        if (smooth) {
-          if (i < max) {
-            let log_zn = Math.log(r2 + i2) / 2;
-            let nu = Math.log(log_zn / Math.log(2)) / Math.log(2);
-            i = i + 1 - nu;
-          }
-
-          let rgb1 = i < max - 1 ? palette[Math.floor(pscale * i)] : [0, 0, 0];
-          let rgb2 = i < max - 1 ? palette[Math.floor(pscale * (i + 1))] : [0, 0, 0];
-          rgb = lerpRgb(rgb1, rgb2, i % 1);
-        } else {
-          rgb = i < max ? palette[Math.floor(pscale * i)] : [0, 0, 0];
-        }
-
-        ctx.fillStyle = `rgb(${Math.floor(rgb[0])},${Math.floor(rgb[1])},${Math.floor(rgb[2])})`;
-        ctx.fillRect(px, py, bl, bl);
       }
     }
 
     let t1 = performance.now();
     console.log(`Canvas render: ${width} x ${height} | (${nav.x},${nav.y}) x${nav.z} | [${bl}] ${Math.round((t1 - t0) * 10000) / 10000} ms.`);
+
+    workers.forEach((worker) => { worker.postMessage({ cmd: WorkerCommands.STOP }) });
 
     //console.log(nav);
     if (nav.step < steps.length - 1) {
