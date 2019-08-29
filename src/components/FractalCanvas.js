@@ -1,9 +1,10 @@
 import React, { useState, useRef, useEffect } from 'react';
 //import queryString from 'query-string';
 import PaletteGenerator from '../util/PaletteGenerator';
-import MandelbrotWorker from '../workers/mandelbrotWorker';
-import * as WorkerCommands from '../workers/workerCommands';
+import MandelbrotWorker from '../workers/Mandelbrot.Worker';
+import * as WorkerCommands from '../workers/WorkerCommands';
 
+// Parse float from string with default value for invalid inputs.
 const parseFloatWithDefault = (str, def) => {
   let val = parseFloat(str);
   if (val === undefined || isNaN(val)) {
@@ -12,6 +13,7 @@ const parseFloatWithDefault = (str, def) => {
   return val;
 };
 
+// Linear interpolation calculation for RGB values supplied in arrays ([r,g,b]).
 const lerpRgb = (rgb1, rgb2, t) => {
   return [(1 - t) * rgb1[0] + t * rgb2[0], (1 - t) * rgb1[1] + t * rgb2[1], (1 - t) * rgb1[2] + t * rgb2[2]];
 }
@@ -47,16 +49,19 @@ const FractalCanvas = ({ width, height, query, props }) => {
   // Mandelbrot set range: -2.5 > x < 1    -1 > y < 1
   const BASE_NUMBER_RANGE = 1;
 
+  // Calculate the bounds of the canvas in fractal space.
   const ratio = width / height;
   const x0 = nav.x - ((BASE_NUMBER_RANGE * ratio) / nav.z);
   const x1 = nav.x + ((BASE_NUMBER_RANGE * ratio) / nav.z);
   const y0 = nav.y - (BASE_NUMBER_RANGE / nav.z);
   const y1 = nav.y + (BASE_NUMBER_RANGE / nav.z);
 
-  const xscale = Math.abs(x1 - x0) / width;
-  const yscale = Math.abs(y1 - y0) / height;
+  // Calculate the x and y scales (should be equal).
+  const xScale = Math.abs(x1 - x0) / width;
+  const yScale = Math.abs(y1 - y0) / height;
 
-  const steps = [100, 50, 20, 4, 1];
+  //const blockSteps = [100, 50, 20, 4, 1];
+  const blockSteps = [512, 128, 16, 4, 1];
 
   const worker_count = 8;
 
@@ -66,7 +71,6 @@ const FractalCanvas = ({ width, height, query, props }) => {
     let ctx = canvas.getContext("2d");
 
     let t0 = performance.now();
-    let px, py;
     let pscale = (palette.length - 1) / max;
 
     if (sizePropsRef.current.width !== width || sizePropsRef.current.height !== height) {
@@ -74,88 +78,110 @@ const FractalCanvas = ({ width, height, query, props }) => {
       setNav({ ...nav, step: 0 });
     }
 
-    let bl = steps[nav.step];
+    let blockSize = blockSteps[nav.step];
     let smooth = true;
 
-    const paintHandler = (px, py, i) => {
-      let rgb;
+    const paintHandler = (spx, spy, width, height, blockSize, max, values) => {
+      //console.log('painter', { spx, spy, width, height, blockSize, max, values });
+      let b = 0;
+      for (let py = 0; py < height; py += blockSize) {
+        for (let px = 0; px < width; px += blockSize) {
 
-      if (smooth) {
-        let rgb1 = i < max - 1 ? palette[Math.floor(pscale * i)] : [0, 0, 0];
-        let rgb2 = i < max - 1 ? palette[Math.floor(pscale * (i + 1))] : [0, 0, 0];
-        rgb = lerpRgb(rgb1, rgb2, i % 1);
-      } else {
-        rgb = i < max ? palette[Math.floor(pscale * i)] : [0, 0, 0];
+          let rgb;
+          let i = values[b++];
+
+          if (smooth) {
+            let rgb1 = i < max - 1 ? palette[Math.floor(pscale * i)] : [0, 0, 0];
+            let rgb2 = i < max - 1 ? palette[Math.floor(pscale * (i + 1))] : [0, 0, 0];
+            rgb = lerpRgb(rgb1, rgb2, i % 1);
+          } else {
+            rgb = i < max ? palette[Math.floor(pscale * i)] : [0, 0, 0];
+          }
+
+          ctx.fillStyle = `rgb(${Math.floor(rgb[0])},${Math.floor(rgb[1])},${Math.floor(rgb[2])})`;
+          ctx.fillRect(spx + px, spy + py, blockSize, blockSize);
+        }
       }
-
-      ctx.fillStyle = `rgb(${Math.floor(rgb[0])},${Math.floor(rgb[1])},${Math.floor(rgb[2])})`;
-      ctx.fillRect(px, py, bl, bl);
     };
 
     const code = MandelbrotWorker.toString();
-    const blob = new Blob(['(' + code + ')()']);
+    const blob = new Blob([`(${code})()`]);
     const blobURL = URL.createObjectURL(blob);
 
     const workers = [];
     for (let i = 0; i < worker_count; i++) {
       let worker = new Worker(blobURL);
-      worker.addEventListener('message', ev => {
-        //console.log('worker', ev.data);
-        paintHandler(ev.data.px, ev.data.py, ev.data.i);
+      worker.addEventListener('message', e => {
+        //console.log('worker', e.data);
+        paintHandler(e.data.px, e.data.py, e.data.width, e.data.height, e.data.blockSize, e.data.max, e.data.values);
       });
       workers[i] = worker;
     }
 
-    // for (let i = 0; i < worker_count; i++) {
-    //   workers[i].postMessage({ cmd: 'start', msg: 'blah' });
-    // }
-
     let w = 0;
 
-    for (py = 0; py < height; py += bl) {
-      for (px = 0; px < width; px += bl) {
+    for (let py = 0; py < height; py += blockSize) {
+      //for (let px = 0; px < width; px += blockSize) {
 
-        workers[(w++ % worker_count)].postMessage({
-          cmd: WorkerCommands.START,
-          px: px,
-          py: py,
-          xs: x0 + (px * xscale),
-          ys: y0 + (py * yscale),
-          max: max,
-          smooth: smooth
-        });
+      // workers[(w++ % worker_count)].postMessage({
+      //   cmd: WorkerCommands.START,
+      //   px: px,
+      //   py: py,
+      //   xs: x0 + (px * xScale),
+      //   ys: y0 + (py * yScale),
+      //   width: width,
+      //   height: 1,
+      //   blockSize: blockSize,
+      //   max: max,
+      //   smooth: smooth
+      // });
 
-      }
+      workers[(w++ % worker_count)].postMessage({
+        cmd: WorkerCommands.START,
+        px: 0,
+        py: py,
+        x0: x0,
+        y0: y0,
+        xScale: xScale,
+        yScale: yScale,
+        width: width,
+        height: 1,
+        blockSize: blockSize,
+        max: max,
+        smooth: smooth
+      });
+
+      //}
     }
 
     let t1 = performance.now();
-    console.log(`Canvas render: ${width} x ${height} | (${nav.x},${nav.y}) x${nav.z} | [${bl}] ${Math.round((t1 - t0) * 10000) / 10000} ms.`);
+    console.log(`Canvas render: ${width} x ${height} | (${nav.x},${nav.y}) x${nav.z} | [${blockSize}] ${Math.round((t1 - t0) * 10000) / 10000} ms.`);
 
     workers.forEach((worker) => { worker.postMessage({ cmd: WorkerCommands.STOP }) });
 
     //console.log(nav);
-    if (nav.step < steps.length - 1) {
+    if (nav.step < blockSteps.length - 1) {
       setNav({ ...nav, step: ++nav.step, t: Math.random() });
     }
 
     const clickHandler = (e) => {
       console.log(`click: ${e.offsetX}, ${e.offsetY}`, e);
       if (!e.ctrlKey) {
-        setNav({ ...nav, x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), z: nav.z * 2, step: 0, t: Math.random() });
+        setNav({ ...nav, x: x0 + (xScale * e.offsetX), y: y0 + (yScale * e.offsetY), z: nav.z * 2, step: 0, t: Math.random() });
       } else if (nav.z > 1) {
-        setNav({ ...nav, x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), z: nav.z / 2, step: 0, t: Math.random() });
+        setNav({ ...nav, x: x0 + (xScale * e.offsetX), y: y0 + (yScale * e.offsetY), z: nav.z / 2, step: 0, t: Math.random() });
       }
     };
 
     const wheelHandler = (e) => {
       console.log(`wheel: ${e.deltaY}`, e);
       if (e.deltaY < 0) {
-        setNav({ x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), z: nav.z * 2, step: 0, t: Math.random() });
+        setNav({ x: x0 + (xScale * e.offsetX), y: y0 + (yScale * e.offsetY), z: nav.z * 2, step: 0, t: Math.random() });
       } else {
         if (nav.z > 1) {
-          setNav({ x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), z: nav.z / 2, step: 0, t: Math.random() });
+          setNav({ x: x0 + (xScale * e.offsetX), y: y0 + (yScale * e.offsetY), z: nav.z / 2, step: 0, t: Math.random() });
         } else {
-          setNav({ x: x0 + (xscale * e.offsetX), y: y0 + (yscale * e.offsetY), step: 0, t: Math.random() });
+          setNav({ x: x0 + (xScale * e.offsetX), y: y0 + (yScale * e.offsetY), step: 0, t: Math.random() });
         }
       }
     };
@@ -167,7 +193,7 @@ const FractalCanvas = ({ width, height, query, props }) => {
       canvas.removeEventListener('click', clickHandler);
       canvas.removeEventListener('wheel', wheelHandler);
     });
-  }, [width, height, palette, steps, nav, x0, xscale, y0, yscale]);
+  }, [width, height, palette, blockSteps, nav, x0, xScale, y0, yScale]);
 
 
   return (
