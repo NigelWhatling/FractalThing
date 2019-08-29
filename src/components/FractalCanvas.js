@@ -61,7 +61,7 @@ const FractalCanvas = ({ width, height, query, props }) => {
   const yScale = Math.abs(y1 - y0) / height;
 
   //const blockSteps = [100, 50, 20, 4, 1];
-  const blockSteps = [512, 128, 16, 4, 1];
+  const blockSteps = [256, 128, 16, 4, 1];
 
   const worker_count = 8;
 
