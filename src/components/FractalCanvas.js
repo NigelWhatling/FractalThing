@@ -1,8 +1,11 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { connect, useSelector } from 'react-redux';
+import { incTasks, decTasks } from '../redux/actions';
 //import queryString from 'query-string';
 import PaletteGenerator from '../util/PaletteGenerator';
 import MandelbrotWorker from '../workers/Mandelbrot.Worker';
 import * as WorkerCommands from '../workers/WorkerCommands';
+import InfoPanel from './InfoPanel';
 
 // Parse float from string with default value for invalid inputs.
 const parseFloatWithDefault = (str, def) => {
@@ -18,7 +21,15 @@ const lerpRgb = (rgb1, rgb2, t) => {
   return [(1 - t) * rgb1[0] + t * rgb2[0], (1 - t) * rgb1[1] + t * rgb2[1], (1 - t) * rgb1[2] + t * rgb2[2]];
 }
 
-const FractalCanvas = ({ width, height, query, props }) => {
+let active_tasks = 0;
+
+const FractalCanvas = ({ width, height, query, props, incTasks, decTasks }) => {
+
+  const workers = [];
+
+  const taskCount = useSelector((state) => {
+    return state.info.active_tasks;
+  });
 
   //console.log(props);
   //const queryProps = queryString.parse(query);
@@ -61,14 +72,14 @@ const FractalCanvas = ({ width, height, query, props }) => {
   const yScale = Math.abs(y1 - y0) / height;
 
   //const blockSteps = [100, 50, 20, 4, 1];
-  const blockSteps = [256, 128, 16, 4, 1];
+  const blockSteps = [256, 64, 16, 4, 1];
 
   const worker_count = 8;
 
   useEffect(() => {
 
     const canvas = canvasRef.current;
-    let ctx = canvas.getContext("2d");
+    const ctx = canvas.getContext("2d");
 
     let t0 = performance.now();
     let pscale = (palette.length - 1) / max;
@@ -102,20 +113,26 @@ const FractalCanvas = ({ width, height, query, props }) => {
           ctx.fillRect(spx + px, spy + py, blockSize, blockSize);
         }
       }
+
+      //decTasks();
+      active_tasks--;
+      // console.log(active_tasks);
     };
 
-    const code = MandelbrotWorker.toString();
-    const blob = new Blob([`(${code})()`]);
-    const blobURL = URL.createObjectURL(blob);
+    if (workers.length < 1) {
+      const code = MandelbrotWorker.toString();
+      const blob = new Blob([`(${code})()`]);
+      const blobURL = URL.createObjectURL(blob);
 
-    const workers = [];
-    for (let i = 0; i < worker_count; i++) {
-      let worker = new Worker(blobURL);
-      worker.addEventListener('message', e => {
-        //console.log('worker', e.data);
-        paintHandler(e.data.px, e.data.py, e.data.width, e.data.height, e.data.blockSize, e.data.max, e.data.values);
-      });
-      workers[i] = worker;
+      for (let i = 0; i < worker_count; i++) {
+        console.log(`worker ${i}`);
+        let worker = new Worker(blobURL);
+        worker.addEventListener('message', e => {
+          //console.log('worker', e.data);
+          paintHandler(e.data.px, e.data.py, e.data.width, e.data.height, e.data.blockSize, e.data.max, e.data.values);
+        });
+        workers[i] = worker;
+      }
     }
 
     let w = 0;
@@ -123,24 +140,14 @@ const FractalCanvas = ({ width, height, query, props }) => {
     for (let py = 0; py < height; py += blockSize) {
       //for (let px = 0; px < width; px += blockSize) {
 
-      // workers[(w++ % worker_count)].postMessage({
-      //   cmd: WorkerCommands.START,
-      //   px: px,
-      //   py: py,
-      //   xs: x0 + (px * xScale),
-      //   ys: y0 + (py * yScale),
-      //   width: width,
-      //   height: 1,
-      //   blockSize: blockSize,
-      //   max: max,
-      //   smooth: smooth
-      // });
-
       workers[(w++ % worker_count)].postMessage({
         cmd: WorkerCommands.START,
+        // px: px,
         px: 0,
         py: py,
+        // xs: x0 + (px * xScale),
         x0: x0,
+        // ys: y0 + (py * yScale),
         y0: y0,
         xScale: xScale,
         yScale: yScale,
@@ -151,13 +158,18 @@ const FractalCanvas = ({ width, height, query, props }) => {
         smooth: smooth
       });
 
+      //incTasks();
+      active_tasks++;
+
       //}
     }
 
     let t1 = performance.now();
     console.log(`Canvas render: ${width} x ${height} | (${nav.x},${nav.y}) x${nav.z} | [${blockSize}] ${Math.round((t1 - t0) * 10000) / 10000} ms.`);
 
-    workers.forEach((worker) => { worker.postMessage({ cmd: WorkerCommands.STOP }) });
+    if (blockSize === 1) {
+      workers.forEach((worker) => { worker.postMessage({ cmd: WorkerCommands.STOP }) });
+    }
 
     //console.log(nav);
     if (nav.step < blockSteps.length - 1) {
@@ -197,9 +209,15 @@ const FractalCanvas = ({ width, height, query, props }) => {
 
 
   return (
-    <canvas ref={canvasRef} width={width} height={height}>
-    </canvas>
+    <div>
+      <canvas ref={canvasRef} width={width} height={height}>
+      </canvas>
+      <InfoPanel nav={nav} tasks={active_tasks}></InfoPanel>
+    </div>
   );
 }
 
-export default FractalCanvas;
+export default connect(
+  (state) => { return { info: state.info } },
+  { incTasks, decTasks }
+)(FractalCanvas);
