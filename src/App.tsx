@@ -1,8 +1,9 @@
-import { useEffect, useRef, useState } from 'react';
+import { useEffect, useReducer, useRef, useState } from 'react';
 import { BrowserRouter, Route, Routes, useParams } from 'react-router-dom';
 import './App.scss';
 import FractalCanvas from './components/FractalCanvas';
 import SideDrawer from './components/SideDrawer';
+import { defaultSettings, settingsReducer } from './state/settings';
 
 type WindowSize = {
   width: number;
@@ -42,12 +43,12 @@ const useWindowSize = (): WindowSize => {
 const FractalRoute = () => {
   const { loc } = useParams();
   const { width, height } = useWindowSize();
-  const [tileSize] = useState(256);
+  const [settings] = useReducer(settingsReducer, defaultSettings);
 
   return (
     <div className="App">
       <SideDrawer />
-      <FractalCanvas loc={loc} width={width} height={height} tileSize={tileSize} />
+      <FractalCanvas loc={loc} width={width} height={height} settings={settings} />
     </div>
   );
 };

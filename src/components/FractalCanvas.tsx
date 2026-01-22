@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import PaletteGenerator from '../util/PaletteGenerator';
 import InfoPanel from './InfoPanel';
 import { START, type WorkerResponseMessage, type WorkerStartMessage } from '../workers/WorkerCommands';
+import type { RenderSettings } from '../state/settings';
 
 type Navigation = {
   x: number;
@@ -13,7 +14,7 @@ type FractalCanvasProps = {
   width: number;
   height: number;
   loc?: string;
-  tileSize?: number;
+  settings: RenderSettings;
 };
 
 type RenderConfig = {
@@ -54,11 +55,8 @@ type DragState = {
   moved: boolean;
 };
 
-const MAX_ITERATIONS = 256;
-const BLOCK_STEPS = [256, 64, 16, 4, 1];
 const WORKER_COUNT = 8;
 const BASE_NUMBER_RANGE = 1;
-const DEFAULT_TILE_SIZE = 256;
 
 const parseFloatWithDefault = (value: string | undefined, fallback: number) => {
   if (value === undefined) {
@@ -94,7 +92,7 @@ const parseNavFromLoc = (loc?: string): Navigation => {
   };
 };
 
-const FractalCanvas = ({ width, height, loc, tileSize }: FractalCanvasProps) => {
+const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => {
   const [nav, setNav] = useState<Navigation>(() => parseNavFromLoc(loc));
   const [taskCount, setTaskCount] = useState(0);
 
@@ -113,7 +111,7 @@ const FractalCanvas = ({ width, height, loc, tileSize }: FractalCanvasProps) => 
   const pendingByTaskRef = useRef<Map<string, number>>(new Map());
   const panShiftRef = useRef<{ dx: number; dy: number } | null>(null);
   const resetTilesRef = useRef(true);
-  const tileSizeRef = useRef(tileSize ?? DEFAULT_TILE_SIZE);
+  const tileSizeRef = useRef(settings.tileSize);
   const dragStateRef = useRef<DragState>({
     active: false,
     pointerId: null,
@@ -129,7 +127,10 @@ const FractalCanvas = ({ width, height, loc, tileSize }: FractalCanvasProps) => 
     navRef.current = nav;
   }, [nav]);
 
-  const palette = useMemo(() => PaletteGenerator(Math.max(MAX_ITERATIONS, 1000)), []);
+  const palette = useMemo(
+    () => PaletteGenerator(Math.max(settings.maxIterations, 1000)),
+    [settings.maxIterations]
+  );
 
   const { x0, y0, xScale, yScale } = useMemo(() => {
     const ratio = width / height;
@@ -165,16 +166,20 @@ const FractalCanvas = ({ width, height, loc, tileSize }: FractalCanvasProps) => 
     resetTilesRef.current = true;
   }, [width, height]);
 
+  useEffect(() => {
+    resetTilesRef.current = true;
+  }, [settings.blockSteps, settings.maxIterations, settings.smooth, settings.tileSize]);
+
   const scheduleTileStep = useCallback((tile: Tile, renderId: number) => {
     const config = renderConfigRef.current;
     if (!config || config.renderId !== renderId) {
       return;
     }
-    if (tile.inFlight || tile.stepIndex >= BLOCK_STEPS.length) {
+    if (tile.inFlight || tile.stepIndex >= settings.blockSteps.length) {
       return;
     }
 
-    const blockSize = BLOCK_STEPS[tile.stepIndex] ?? 1;
+    const blockSize = settings.blockSteps[tile.stepIndex] ?? 1;
     const rows = Math.ceil(tile.height / blockSize);
     const taskKey = `${tile.id}:${tile.stepIndex}`;
 
@@ -202,22 +207,22 @@ const FractalCanvas = ({ width, height, loc, tileSize }: FractalCanvasProps) => 
         width: tile.width,
         height: rowHeight,
         blockSize,
-        max: MAX_ITERATIONS,
-        smooth: true,
+        max: settings.maxIterations,
+        smooth: settings.smooth,
       };
       workersRef.current[workerIndex % workersRef.current.length].postMessage(message);
       workerIndex += 1;
     }
     workerIndexRef.current = workerIndex;
-  }, []);
+  }, [settings.blockSteps, settings.maxIterations, settings.smooth]);
 
   const scheduleAllTiles = useCallback((renderId: number) => {
     tileMapRef.current.forEach((tile) => {
-      if (!tile.inFlight && tile.stepIndex < BLOCK_STEPS.length) {
+      if (!tile.inFlight && tile.stepIndex < settings.blockSteps.length) {
         scheduleTileStep(tile, renderId);
       }
     });
-  }, [scheduleTileStep]);
+  }, [scheduleTileStep, settings.blockSteps.length]);
 
   const handleWorkerMessage = useCallback(
     (data: WorkerResponseMessage) => {
@@ -531,7 +536,7 @@ const FractalCanvas = ({ width, height, loc, tileSize }: FractalCanvasProps) => 
       return;
     }
 
-    const resolvedTileSize = Math.max(32, tileSize ?? DEFAULT_TILE_SIZE);
+    const resolvedTileSize = Math.max(32, settings.tileSize);
     if (tileSizeRef.current !== resolvedTileSize) {
       tileSizeRef.current = resolvedTileSize;
       resetTilesRef.current = true;
@@ -628,15 +633,15 @@ const FractalCanvas = ({ width, height, loc, tileSize }: FractalCanvasProps) => 
     const renderId = renderIdRef.current + 1;
     renderIdRef.current = renderId;
 
-    const smooth = true;
-    const pscale = (palette.length - 1) / MAX_ITERATIONS;
-    renderConfigRef.current = {
-      renderId,
-      max: MAX_ITERATIONS,
-      pscale,
-      palette,
-      smooth,
-    };
+      const smooth = settings.smooth;
+      const pscale = (palette.length - 1) / settings.maxIterations;
+      renderConfigRef.current = {
+        renderId,
+        max: settings.maxIterations,
+        pscale,
+        palette,
+        smooth,
+      };
 
     pendingByTaskRef.current.clear();
     pendingTasksRef.current = 0;
@@ -646,7 +651,20 @@ const FractalCanvas = ({ width, height, loc, tileSize }: FractalCanvasProps) => 
     });
 
     scheduleAllTiles(renderId);
-  }, [height, palette, scheduleAllTiles, tileSize, width, x0, xScale, y0, yScale]);
+  }, [
+    height,
+    palette,
+    scheduleAllTiles,
+    settings.blockSteps,
+    settings.maxIterations,
+    settings.smooth,
+    settings.tileSize,
+    width,
+    x0,
+    xScale,
+    y0,
+    yScale,
+  ]);
 
   return (
     <div>
