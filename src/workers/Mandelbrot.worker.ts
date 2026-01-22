@@ -1,9 +1,4 @@
-import {
-  START,
-  STOP,
-  type WorkerRequestMessage,
-  type WorkerResponseMessage,
-} from './WorkerCommands';
+import { START, STOP, type WorkerRequestMessage, type WorkerResponseMessage } from './WorkerCommands';
 
 const workerContext = self as DedicatedWorkerGlobalScope;
 
@@ -21,7 +16,6 @@ workerContext.addEventListener('message', (event: MessageEvent<WorkerRequestMess
           let realPart = 0;
           let imagPart = 0;
           let iteration = 0;
-
           let realSquared = 0;
           let imagSquared = 0;
           let sumSquared = 0;

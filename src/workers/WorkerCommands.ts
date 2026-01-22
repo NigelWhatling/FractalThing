@@ -24,7 +24,9 @@ export type WorkerStopMessage = {
   renderId: number;
 };
 
-export type WorkerRequestMessage = WorkerStartMessage | WorkerStopMessage;
+export type WorkerRequestMessage =
+  | WorkerStartMessage
+  | WorkerStopMessage;
 
 export type WorkerResponseMessage = {
   renderId: number;

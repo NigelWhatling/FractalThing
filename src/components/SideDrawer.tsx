@@ -86,6 +86,11 @@ const SideDrawer = ({ settings, onUpdateSettings }: SideDrawerProps) => {
     settings.paletteSmoothness
   );
   const [hueRotateDraft, setHueRotateDraft] = useState(settings.hueRotate);
+  const [workerCountDraft, setWorkerCountDraft] = useState(settings.workerCount);
+  const workerMax = useMemo(
+    () => Math.max(1, typeof navigator === 'undefined' ? 8 : navigator.hardwareConcurrency || 8),
+    []
+  );
 
   const toggleDrawer = (nextOpen: boolean) => () => {
     setOpen(nextOpen);
@@ -122,6 +127,11 @@ const SideDrawer = ({ settings, onUpdateSettings }: SideDrawerProps) => {
   useEffect(() => {
     setHueRotateDraft(settings.hueRotate);
   }, [settings.hueRotate]);
+
+  useEffect(() => {
+    setWorkerCountDraft(settings.workerCount);
+  }, [settings.workerCount]);
+
 
   useEffect(() => {
     const index = refinementOptions.findIndex(
@@ -216,6 +226,15 @@ const SideDrawer = ({ settings, onUpdateSettings }: SideDrawerProps) => {
     }),
     []
   );
+
+  const handleWorkerCountCommit = useCallback(
+    (_: Event, value: number | number[]) => {
+      const nextValue = Array.isArray(value) ? value[0] : value;
+      onUpdateSettings({ workerCount: Math.max(1, Math.round(nextValue)) });
+    },
+    [onUpdateSettings]
+  );
+
 
   return (
     <div>
@@ -517,6 +536,28 @@ const SideDrawer = ({ settings, onUpdateSettings }: SideDrawerProps) => {
                     }}
                     onChangeCommitted={handleTileSizeCommit}
                   />
+                </Box>
+                <Box>
+                  <LabelWithHelp
+                    label="Worker count"
+                    tooltip="Number of render workers. Higher counts use more CPU."
+                  />
+                  <Slider
+                    value={workerCountDraft}
+                    min={1}
+                    max={workerMax}
+                    step={1}
+                    valueLabelDisplay="auto"
+                    onChange={(_, value) => {
+                      const nextValue = Array.isArray(value) ? value[0] : value;
+                      setWorkerCountDraft(Math.round(nextValue));
+                    }}
+                    onChangeCommitted={handleWorkerCountCommit}
+                  />
+                  <Box sx={{ display: 'flex', justifyContent: 'space-between', mt: 0.5 }}>
+                    <Typography variant="caption">1</Typography>
+                    <Typography variant="caption">{workerMax}</Typography>
+                  </Box>
                 </Box>
                 <Box>
                   <LabelWithHelp

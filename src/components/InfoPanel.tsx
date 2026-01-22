@@ -14,6 +14,8 @@ type InfoPanelProps = {
 const formatValue = (value: number) => value.toFixed(6);
 
 const InfoPanel = ({ nav, isRendering, maxIterations }: InfoPanelProps) => {
+  const renderStatus = isRendering ? 'Rendering…' : 'Idle';
+
   return (
     <Box
       sx={{
@@ -39,9 +41,7 @@ const InfoPanel = ({ nav, isRendering, maxIterations }: InfoPanelProps) => {
         <Typography variant="caption">Z {formatValue(nav.z)}</Typography>
         <Typography variant="caption">Max {Math.round(maxIterations)}</Typography>
       </Box>
-      <Typography variant="caption">
-        {isRendering ? 'Rendering…' : 'Idle'}
-      </Typography>
+      <Typography variant="caption">{renderStatus}</Typography>
     </Box>
   );
 };

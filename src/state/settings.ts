@@ -13,6 +13,7 @@ export type RenderSettings = {
   ditherStrength: number;
   paletteSmoothness: number;
   hueRotate: number;
+  workerCount: number;
 };
 
 export const defaultSettings: RenderSettings = {
@@ -30,6 +31,7 @@ export const defaultSettings: RenderSettings = {
   ditherStrength: 0.35,
   paletteSmoothness: 0,
   hueRotate: 0,
+  workerCount: 8,
 };
 
 export type SettingsAction = {

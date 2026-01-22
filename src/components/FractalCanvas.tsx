@@ -74,7 +74,6 @@ type SelectionRect = {
   height: number;
 };
 
-const WORKER_COUNT = 8;
 const BASE_NUMBER_RANGE = 1;
 const BASE_BLOCK_SIZE = 256;
 const MAX_PALETTE_ITERATIONS = 2048;
@@ -167,6 +166,7 @@ const FractalCanvas = ({ width, height, loc, settings, interactionMode }: Fracta
   const [isRendering, setIsRendering] = useState(false);
   const [displayNav, setDisplayNav] = useState<Navigation>(() => parseNavFromLoc(loc));
   const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(null);
+  const workerCount = Math.max(1, Math.round(settings.workerCount || 1));
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const contextRef = useRef<CanvasRenderingContext2D | null>(null);
@@ -453,11 +453,15 @@ const FractalCanvas = ({ width, height, loc, settings, interactionMode }: Fracta
     settings.refinementStepsCount,
     settings.smooth,
     settings.tileSize,
+    settings.workerCount,
   ]);
 
   const scheduleTileStep = useCallback((tile: Tile, renderId: number) => {
     const config = renderConfigRef.current;
     if (!config || config.renderId !== renderId) {
+      return;
+    }
+    if (workersRef.current.length === 0) {
       return;
     }
     if (tile.inFlight || tile.stepIndex >= blockSteps.length) {
@@ -509,10 +513,10 @@ const FractalCanvas = ({ width, height, loc, settings, interactionMode }: Fracta
   }, [blockSteps.length, scheduleTileStep]);
 
   const handleWorkerMessage = useCallback(
-    (data: WorkerResponseMessage) => {
+    (response: WorkerResponseMessage) => {
       const config = renderConfigRef.current;
       const ctx = contextRef.current;
-      if (!config || !ctx || data.renderId !== config.renderId) {
+      if (!config || !ctx || response.renderId !== config.renderId) {
         return;
       }
 
@@ -522,16 +526,16 @@ const FractalCanvas = ({ width, height, loc, settings, interactionMode }: Fracta
       const isCycle = colorMode === 'cycle';
       const isFixed = colorMode === 'fixed';
       const hasDither = ditherStrength > 0;
-      for (let py = 0; py < data.height; py += data.blockSize) {
-        for (let px = 0; px < data.width; px += data.blockSize) {
-          const iterationValue = data.values[index++];
+      for (let py = 0; py < response.height; py += response.blockSize) {
+        for (let px = 0; px < response.width; px += response.blockSize) {
+          const iterationValue = response.values[index++];
           let rgb: number[];
 
           if (smooth) {
             if (iterationValue < max) {
               const scaled = pscale * iterationValue;
               const dithered = hasDither
-                ? scaled + (hash2d(data.px + px, data.py + py) - 0.5) * ditherStrength
+                ? scaled + (hash2d(response.px + px, response.py + py) - 0.5) * ditherStrength
                 : scaled;
               const baseRaw = Math.floor(dithered);
               const frac = dithered - baseRaw;
@@ -551,7 +555,7 @@ const FractalCanvas = ({ width, height, loc, settings, interactionMode }: Fracta
             if (iterationValue < max) {
               const scaled = pscale * iterationValue;
               const dithered = hasDither
-                ? scaled + (hash2d(data.px + px, data.py + py) - 0.5) * ditherStrength
+                ? scaled + (hash2d(response.px + px, response.py + py) - 0.5) * ditherStrength
                 : scaled;
               const baseRaw = Math.floor(dithered);
               const paletteIndex = isCycle
@@ -566,18 +570,18 @@ const FractalCanvas = ({ width, height, loc, settings, interactionMode }: Fracta
           }
 
           ctx.fillStyle = `rgb(${Math.floor(rgb[0])},${Math.floor(rgb[1])},${Math.floor(rgb[2])})`;
-          const drawWidth = Math.min(data.blockSize, data.width - px);
-          const drawHeight = Math.min(data.blockSize, data.height - py);
-          ctx.fillRect(data.px + px, data.py + py, drawWidth, drawHeight);
+          const drawWidth = Math.min(response.blockSize, response.width - px);
+          const drawHeight = Math.min(response.blockSize, response.height - py);
+          ctx.fillRect(response.px + px, response.py + py, drawWidth, drawHeight);
         }
       }
 
-      const taskKey = `${data.tileId}:${data.stepIndex}`;
+      const taskKey = `${response.tileId}:${response.stepIndex}`;
       const remainingForTask = (pendingByTaskRef.current.get(taskKey) ?? 0) - 1;
       if (remainingForTask <= 0) {
         pendingByTaskRef.current.delete(taskKey);
-        const tile = tileMapRef.current.get(data.tileId);
-        if (tile && tile.stepIndex === data.stepIndex) {
+        const tile = tileMapRef.current.get(response.tileId);
+        if (tile && tile.stepIndex === response.stepIndex) {
           tile.stepIndex += 1;
           tile.inFlight = false;
           const currentRenderId = renderConfigRef.current?.renderId;
@@ -603,7 +607,7 @@ const FractalCanvas = ({ width, height, loc, settings, interactionMode }: Fracta
 
   useEffect(() => {
     const workers: Worker[] = [];
-    for (let index = 0; index < WORKER_COUNT; index += 1) {
+    for (let index = 0; index < workerCount; index += 1) {
       const worker = new Worker(
         new URL('../workers/Mandelbrot.worker.ts', import.meta.url),
         { type: 'module' }
@@ -614,11 +618,11 @@ const FractalCanvas = ({ width, height, loc, settings, interactionMode }: Fracta
       workers.push(worker);
     }
     workersRef.current = workers;
-
+    workerIndexRef.current = 0;
     return () => {
       workers.forEach((worker) => worker.terminate());
     };
-  }, [handleWorkerMessage]);
+  }, [handleWorkerMessage, workerCount]);
 
   useEffect(() => {
     const canvas = canvasRef.current;
@@ -1110,6 +1114,7 @@ const FractalCanvas = ({ width, height, loc, settings, interactionMode }: Fracta
     settings.refinementStepsCount,
     settings.smooth,
     settings.tileSize,
+    settings.workerCount,
     width,
     x0,
     xScale,
