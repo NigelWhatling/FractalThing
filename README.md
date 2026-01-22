@@ -6,6 +6,15 @@ This is a little project that I'm building so that I can play with React things.
 
 It allows you to browse fractals. Just the Mandelbrot set at the moment. May add more later.
 
+## Development
+
+This project uses Vite + React + TypeScript.
+
+- `npm install`
+- `npm run dev`
+- `npm run build`
+- `npm run preview`
+
 ## What are Fractals?
 
 > A curve or geometrical figure, each part of which has the same statistical character as the whole. They are useful in modelling structures (such as snowflakes) in which similar patterns recur at progressively smaller scales, and in describing partly random or chaotic phenomena such as crystal growth and galaxy formation.
