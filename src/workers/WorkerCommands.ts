@@ -4,6 +4,8 @@ export const STOP = 'stop' as const;
 export type WorkerStartMessage = {
   cmd: typeof START;
   renderId: number;
+  tileId: number;
+  stepIndex: number;
   px: number;
   py: number;
   x0: number;
@@ -26,6 +28,8 @@ export type WorkerRequestMessage = WorkerStartMessage | WorkerStopMessage;
 
 export type WorkerResponseMessage = {
   renderId: number;
+  tileId: number;
+  stepIndex: number;
   px: number;
   py: number;
   width: number;

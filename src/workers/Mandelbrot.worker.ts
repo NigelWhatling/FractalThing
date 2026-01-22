@@ -47,6 +47,8 @@ workerContext.addEventListener('message', (event: MessageEvent<WorkerRequestMess
 
       const response: WorkerResponseMessage = {
         renderId: data.renderId,
+        tileId: data.tileId,
+        stepIndex: data.stepIndex,
         px: data.px,
         py: data.py,
         width: data.width,

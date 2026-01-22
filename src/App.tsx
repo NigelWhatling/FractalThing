@@ -42,11 +42,12 @@ const useWindowSize = (): WindowSize => {
 const FractalRoute = () => {
   const { loc } = useParams();
   const { width, height } = useWindowSize();
+  const [tileSize] = useState(256);
 
   return (
     <div className="App">
       <SideDrawer />
-      <FractalCanvas loc={loc} width={width} height={height} />
+      <FractalCanvas loc={loc} width={width} height={height} tileSize={tileSize} />
     </div>
   );
 };
