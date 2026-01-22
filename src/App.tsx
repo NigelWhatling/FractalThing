@@ -2,6 +2,7 @@ import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { BrowserRouter, Route, Routes, useParams } from 'react-router-dom';
 import './App.scss';
 import FractalCanvas from './components/FractalCanvas';
+import InteractionModeToggle, { type InteractionMode } from './components/InteractionModeToggle';
 import SideDrawer from './components/SideDrawer';
 import { defaultSettings, settingsReducer } from './state/settings';
 
@@ -44,6 +45,7 @@ const FractalRoute = () => {
   const { loc } = useParams();
   const { width, height } = useWindowSize();
   const [settings, dispatchSettings] = useReducer(settingsReducer, defaultSettings);
+  const [interactionMode, setInteractionMode] = useState<InteractionMode>('grab');
   const updateSettings = useCallback(
     (payload: Partial<typeof defaultSettings>) => {
       dispatchSettings({ type: 'update', payload });
@@ -54,7 +56,14 @@ const FractalRoute = () => {
   return (
     <div className="App">
       <SideDrawer settings={settings} onUpdateSettings={updateSettings} />
-      <FractalCanvas loc={loc} width={width} height={height} settings={settings} />
+      <InteractionModeToggle value={interactionMode} onChange={setInteractionMode} />
+      <FractalCanvas
+        loc={loc}
+        width={width}
+        height={height}
+        settings={settings}
+        interactionMode={interactionMode}
+      />
     </div>
   );
 };

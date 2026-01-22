@@ -10,11 +10,14 @@ type Navigation = {
   z: number;
 };
 
+type InteractionMode = 'grab' | 'select';
+
 type FractalCanvasProps = {
   width: number;
   height: number;
   loc?: string;
   settings: RenderSettings;
+  interactionMode: InteractionMode;
 };
 
 type RenderConfig = {
@@ -55,6 +58,20 @@ type DragState = {
     yScale: number;
   };
   moved: boolean;
+};
+
+type SelectionState = {
+  active: boolean;
+  pointerId: number | null;
+  startX: number;
+  startY: number;
+};
+
+type SelectionRect = {
+  x: number;
+  y: number;
+  width: number;
+  height: number;
 };
 
 const WORKER_COUNT = 8;
@@ -145,10 +162,11 @@ const parseNavFromLoc = (loc?: string): Navigation => {
   };
 };
 
-const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => {
+const FractalCanvas = ({ width, height, loc, settings, interactionMode }: FractalCanvasProps) => {
   const [nav, setNav] = useState<Navigation>(() => parseNavFromLoc(loc));
   const [isRendering, setIsRendering] = useState(false);
   const [displayNav, setDisplayNav] = useState<Navigation>(() => parseNavFromLoc(loc));
+  const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const contextRef = useRef<CanvasRenderingContext2D | null>(null);
@@ -162,6 +180,15 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
   const displayNavRef = useRef(displayNav);
   const pendingDisplayNavRef = useRef<Navigation | null>(null);
   const displayNavRafRef = useRef<number | null>(null);
+  const interactionModeRef = useRef<InteractionMode>(interactionMode);
+  const selectionStateRef = useRef<SelectionState>({
+    active: false,
+    pointerId: null,
+    startX: 0,
+    startY: 0,
+  });
+  const selectionRectRef = useRef<SelectionRect | null>(null);
+  const selectionRafRef = useRef<number | null>(null);
   const boundsRef = useRef({ x0: 0, y0: 0, xScale: 0, yScale: 0 });
   const tileMapRef = useRef<Map<number, Tile>>(new Map());
   const nextTileIdRef = useRef(1);
@@ -189,6 +216,39 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
   }, [displayNav]);
 
   useEffect(() => {
+    interactionModeRef.current = interactionMode;
+    suppressClickRef.current = false;
+    if (interactionMode === 'grab') {
+      selectionStateRef.current = {
+        active: false,
+        pointerId: null,
+        startX: 0,
+        startY: 0,
+      };
+      selectionRectRef.current = null;
+      setSelectionRect(null);
+    } else {
+      const canvas = canvasRef.current;
+      if (dragStateRef.current.active && canvas && dragStateRef.current.pointerId !== null) {
+        canvas.releasePointerCapture(dragStateRef.current.pointerId);
+      }
+      dragStateRef.current = {
+        active: false,
+        pointerId: null,
+        startX: 0,
+        startY: 0,
+        startNav: navRef.current,
+        startScale: { xScale: 0, yScale: 0 },
+        moved: false,
+      };
+      if (canvas) {
+        canvas.style.transform = 'translate(0px, 0px)';
+        canvas.style.cursor = 'crosshair';
+      }
+    }
+  }, [interactionMode]);
+
+  useEffect(() => {
     if (!dragStateRef.current.active) {
       displayNavRef.current = nav;
       setDisplayNav(nav);
@@ -214,7 +274,48 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
       if (displayNavRafRef.current !== null) {
         window.cancelAnimationFrame(displayNavRafRef.current);
       }
+      if (selectionRafRef.current !== null) {
+        window.cancelAnimationFrame(selectionRafRef.current);
+      }
     };
+  }, []);
+
+  const clampValue = (value: number, min: number, max: number) =>
+    Math.min(max, Math.max(min, value));
+
+  const computeSelectionRect = useCallback(
+    (startX: number, startY: number, currentX: number, currentY: number): SelectionRect => {
+      const canvasWidth = width;
+      const canvasHeight = height;
+      const clampedStartX = clampValue(startX, 0, canvasWidth);
+      const clampedStartY = clampValue(startY, 0, canvasHeight);
+      const clampedX = clampValue(currentX, 0, canvasWidth);
+      const clampedY = clampValue(currentY, 0, canvasHeight);
+
+      const rectX = Math.min(clampedStartX, clampedX);
+      const rectY = Math.min(clampedStartY, clampedY);
+      const rectWidth = Math.abs(clampedX - clampedStartX);
+      const rectHeight = Math.abs(clampedY - clampedStartY);
+
+      return {
+        x: rectX,
+        y: rectY,
+        width: rectWidth,
+        height: rectHeight,
+      };
+    },
+    [height, width]
+  );
+
+  const queueSelectionRectUpdate = useCallback((rect: SelectionRect | null) => {
+    selectionRectRef.current = rect;
+    if (selectionRafRef.current !== null) {
+      return;
+    }
+    selectionRafRef.current = window.requestAnimationFrame(() => {
+      selectionRafRef.current = null;
+      setSelectionRect(selectionRectRef.current);
+    });
   }, []);
 
   const setRendering = useCallback((value: boolean) => {
@@ -319,6 +420,14 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
       contextRef.current = canvasRef.current.getContext('2d');
     }
   }, []);
+
+  useEffect(() => {
+    const canvas = canvasRef.current;
+    if (!canvas) {
+      return;
+    }
+    canvas.style.cursor = interactionMode === 'grab' ? 'grab' : 'crosshair';
+  }, [interactionMode]);
 
   useEffect(() => {
     setNav(parseNavFromLoc(loc));
@@ -587,6 +696,24 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
         return;
       }
 
+      if (interactionModeRef.current === 'select') {
+        canvas.setPointerCapture(event.pointerId);
+        selectionStateRef.current = {
+          active: true,
+          pointerId: event.pointerId,
+          startX: event.offsetX,
+          startY: event.offsetY,
+        };
+        queueSelectionRectUpdate({
+          x: event.offsetX,
+          y: event.offsetY,
+          width: 0,
+          height: 0,
+        });
+        event.preventDefault();
+        return;
+      }
+
       canvas.setPointerCapture(event.pointerId);
       const { xScale: startXScale, yScale: startYScale } = boundsRef.current;
 
@@ -604,6 +731,22 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
     };
 
     const handlePointerMove = (event: PointerEvent) => {
+      if (interactionModeRef.current === 'select') {
+        const selection = selectionStateRef.current;
+        if (!selection.active || selection.pointerId !== event.pointerId) {
+          return;
+        }
+        const rect = computeSelectionRect(
+          selection.startX,
+          selection.startY,
+          event.offsetX,
+          event.offsetY
+        );
+        queueSelectionRectUpdate(rect);
+        event.preventDefault();
+        return;
+      }
+
       const drag = dragStateRef.current;
       if (!drag.active || drag.pointerId !== event.pointerId) {
         return;
@@ -625,6 +768,54 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
     };
 
     const handlePointerUp = (event: PointerEvent) => {
+      if (interactionModeRef.current === 'select') {
+        const selection = selectionStateRef.current;
+        if (!selection.active || selection.pointerId !== event.pointerId) {
+          return;
+        }
+
+        selectionStateRef.current = {
+          active: false,
+          pointerId: null,
+          startX: 0,
+          startY: 0,
+        };
+        canvas.releasePointerCapture(event.pointerId);
+        suppressClickRef.current = false;
+
+        const rect = computeSelectionRect(
+          selection.startX,
+          selection.startY,
+          event.offsetX,
+          event.offsetY
+        );
+        queueSelectionRectUpdate(null);
+
+        if (rect.width < 4 || rect.height < 4) {
+          return;
+        }
+
+        const { x0: bx0, y0: by0, xScale: bxScale, yScale: byScale } = boundsRef.current;
+        const xMin = bx0 + bxScale * rect.x;
+        const yMin = by0 + byScale * rect.y;
+        const xMax = bx0 + bxScale * (rect.x + rect.width);
+        const yMax = by0 + byScale * (rect.y + rect.height);
+
+        const scaleX = canvas.width / rect.width;
+        const scaleY = canvas.height / rect.height;
+        const scale = Math.min(scaleX, scaleY);
+        const nextNav = {
+          x: (xMin + xMax) / 2,
+          y: (yMin + yMax) / 2,
+          z: navRef.current.z * scale,
+        };
+        resetTilesRef.current = true;
+        displayNavRef.current = nextNav;
+        setDisplayNav(nextNav);
+        setNav(nextNav);
+        return;
+      }
+
       const drag = dragStateRef.current;
       if (!drag.active || drag.pointerId !== event.pointerId) {
         return;
@@ -677,6 +868,24 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
     };
 
     const handlePointerCancel = (event: PointerEvent) => {
+      if (interactionModeRef.current === 'select') {
+        const selection = selectionStateRef.current;
+        if (!selection.active || selection.pointerId !== event.pointerId) {
+          return;
+        }
+
+        selectionStateRef.current = {
+          active: false,
+          pointerId: null,
+          startX: 0,
+          startY: 0,
+        };
+        canvas.releasePointerCapture(event.pointerId);
+        suppressClickRef.current = false;
+        queueSelectionRectUpdate(null);
+        return;
+      }
+
       const drag = dragStateRef.current;
       if (!drag.active || drag.pointerId !== event.pointerId) {
         return;
@@ -691,6 +900,10 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
     };
 
     const handleClick = (event: MouseEvent) => {
+      if (interactionModeRef.current === 'select') {
+        return;
+      }
+
       if (suppressClickRef.current) {
         suppressClickRef.current = false;
         return;
@@ -743,7 +956,7 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
       canvas.removeEventListener('click', handleClick);
       canvas.removeEventListener('wheel', handleWheel);
     };
-  }, []);
+  }, [computeSelectionRect, queueDisplayNavUpdate, queueSelectionRectUpdate]);
 
   useEffect(() => {
     const ctx = contextRef.current;
@@ -905,8 +1118,23 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
   ]);
 
   return (
-    <div>
+    <div style={{ position: 'relative', width, height }}>
       <canvas ref={canvasRef} width={width} height={height} style={{ filter: canvasFilter }} />
+      {selectionRect && (
+        <div
+          style={{
+            position: 'absolute',
+            left: selectionRect.x,
+            top: selectionRect.y,
+            width: selectionRect.width,
+            height: selectionRect.height,
+            border: '1px solid rgba(255,255,255,0.9)',
+            backgroundColor: 'rgba(255,255,255,0.12)',
+            boxShadow: '0 0 0 1px rgba(0,0,0,0.4) inset',
+            pointerEvents: 'none',
+          }}
+        />
+      )}
       <InfoPanel
         nav={displayNav}
         isRendering={isRendering}
