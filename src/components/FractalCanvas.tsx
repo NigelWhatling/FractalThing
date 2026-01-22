@@ -23,6 +23,8 @@ type RenderConfig = {
   pscale: number;
   palette: number[][];
   smooth: boolean;
+  colorMode: RenderSettings['colorMode'];
+  ditherStrength: number;
 };
 
 type RenderRegion = {
@@ -57,6 +59,8 @@ type DragState = {
 
 const WORKER_COUNT = 8;
 const BASE_NUMBER_RANGE = 1;
+const BASE_BLOCK_SIZE = 256;
+const MAX_PALETTE_ITERATIONS = 2048;
 
 const parseFloatWithDefault = (value: string | undefined, fallback: number) => {
   if (value === undefined) {
@@ -72,6 +76,55 @@ const lerpRgb = (rgb1: number[], rgb2: number[], t: number) => {
     (1 - t) * rgb1[1] + t * rgb2[1],
     (1 - t) * rgb1[2] + t * rgb2[2],
   ];
+};
+
+const smoothPalette = (palette: number[][]) => {
+  const length = palette.length;
+  const smoothed: number[][] = new Array(length);
+
+  for (let index = 0; index < length; index += 1) {
+    const prev = palette[Math.max(0, index - 1)];
+    const current = palette[index];
+    const next = palette[Math.min(length - 1, index + 1)];
+    smoothed[index] = [
+      (prev[0] + 2 * current[0] + next[0]) / 4,
+      (prev[1] + 2 * current[1] + next[1]) / 4,
+      (prev[2] + 2 * current[2] + next[2]) / 4,
+    ];
+  }
+
+  return smoothed;
+};
+
+const hash2d = (x: number, y: number) => {
+  let n = Math.imul(x, 374761393) + Math.imul(y, 668265263);
+  n = Math.imul(n ^ (n >>> 13), 1274126177);
+  return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
+};
+
+const buildBlockSteps = (stepsCount: number, finalBlockSize: number) => {
+  const clampedSteps = Math.max(2, Math.round(stepsCount));
+  const clampedFinal = Math.min(BASE_BLOCK_SIZE, Math.max(1, Math.round(finalBlockSize)));
+  const start = Math.log(BASE_BLOCK_SIZE);
+  const end = Math.log(clampedFinal);
+  const step = (end - start) / (clampedSteps - 1);
+  const steps: number[] = [];
+
+  for (let index = 0; index < clampedSteps; index += 1) {
+    const value = Math.round(Math.exp(start + step * index));
+    steps.push(value);
+  }
+
+  steps[0] = BASE_BLOCK_SIZE;
+  steps[clampedSteps - 1] = clampedFinal;
+
+  for (let index = 1; index < steps.length; index += 1) {
+    if (steps[index] >= steps[index - 1]) {
+      steps[index] = Math.max(clampedFinal, steps[index - 1] - 1);
+    }
+  }
+
+  return steps;
 };
 
 const parseNavFromLoc = (loc?: string): Navigation => {
@@ -94,7 +147,8 @@ const parseNavFromLoc = (loc?: string): Navigation => {
 
 const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => {
   const [nav, setNav] = useState<Navigation>(() => parseNavFromLoc(loc));
-  const [taskCount, setTaskCount] = useState(0);
+  const [isRendering, setIsRendering] = useState(false);
+  const [displayNav, setDisplayNav] = useState<Navigation>(() => parseNavFromLoc(loc));
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const contextRef = useRef<CanvasRenderingContext2D | null>(null);
@@ -104,10 +158,13 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
   const renderIdRef = useRef(0);
   const workerIndexRef = useRef(0);
   const navRef = useRef(nav);
+  const isRenderingRef = useRef(false);
+  const displayNavRef = useRef(displayNav);
+  const pendingDisplayNavRef = useRef<Navigation | null>(null);
+  const displayNavRafRef = useRef<number | null>(null);
   const boundsRef = useRef({ x0: 0, y0: 0, xScale: 0, yScale: 0 });
   const tileMapRef = useRef<Map<number, Tile>>(new Map());
   const nextTileIdRef = useRef(1);
-  const pendingTasksRef = useRef(0);
   const pendingByTaskRef = useRef<Map<string, number>>(new Map());
   const panShiftRef = useRef<{ dx: number; dy: number } | null>(null);
   const resetTilesRef = useRef(true);
@@ -127,9 +184,115 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
     navRef.current = nav;
   }, [nav]);
 
-  const palette = useMemo(
-    () => PaletteGenerator(Math.max(settings.maxIterations, 1000)),
-    [settings.maxIterations]
+  useEffect(() => {
+    displayNavRef.current = displayNav;
+  }, [displayNav]);
+
+  useEffect(() => {
+    if (!dragStateRef.current.active) {
+      displayNavRef.current = nav;
+      setDisplayNav(nav);
+    }
+  }, [nav]);
+
+  const queueDisplayNavUpdate = useCallback((nextNav: Navigation) => {
+    pendingDisplayNavRef.current = nextNav;
+    if (displayNavRafRef.current !== null) {
+      return;
+    }
+    displayNavRafRef.current = window.requestAnimationFrame(() => {
+      displayNavRafRef.current = null;
+      if (pendingDisplayNavRef.current) {
+        displayNavRef.current = pendingDisplayNavRef.current;
+        setDisplayNav(pendingDisplayNavRef.current);
+      }
+    });
+  }, []);
+
+  useEffect(() => {
+    return () => {
+      if (displayNavRafRef.current !== null) {
+        window.cancelAnimationFrame(displayNavRafRef.current);
+      }
+    };
+  }, []);
+
+  const setRendering = useCallback((value: boolean) => {
+    if (isRenderingRef.current === value) {
+      return;
+    }
+    isRenderingRef.current = value;
+    setIsRendering(value);
+  }, []);
+
+  const basePalette = useMemo(() => PaletteGenerator(MAX_PALETTE_ITERATIONS), []);
+  const smoothedPalette = useMemo(() => smoothPalette(basePalette), [basePalette]);
+  const palette = useMemo(() => {
+    const strength = Math.min(1, Math.max(0, settings.paletteSmoothness));
+    if (strength <= 0) {
+      return basePalette;
+    }
+    if (strength >= 1) {
+      return smoothedPalette;
+    }
+    const blended = new Array(basePalette.length);
+    for (let index = 0; index < basePalette.length; index += 1) {
+      const base = basePalette[index];
+      const smooth = smoothedPalette[index];
+      blended[index] = [
+        base[0] + (smooth[0] - base[0]) * strength,
+        base[1] + (smooth[1] - base[1]) * strength,
+        base[2] + (smooth[2] - base[2]) * strength,
+      ];
+    }
+    return blended;
+  }, [basePalette, smoothedPalette, settings.paletteSmoothness]);
+
+  const effectiveMaxIterations = useMemo(() => {
+    if (!settings.autoMaxIterations) {
+      return settings.maxIterations;
+    }
+    return Math.max(
+      settings.maxIterations,
+      Math.round(
+        settings.maxIterations + settings.autoIterationsScale * Math.log2(Math.max(1, nav.z))
+      )
+    );
+  }, [
+    nav.z,
+    settings.autoIterationsScale,
+    settings.autoMaxIterations,
+    settings.maxIterations,
+  ]);
+
+  const canvasFilter = useMemo(() => {
+    const filterParts: string[] = [];
+    switch (settings.filterMode) {
+      case 'gaussianSoft':
+        filterParts.push(`blur(${Math.max(0, settings.gaussianBlur)}px)`);
+        break;
+      case 'vivid':
+        filterParts.push('saturate(1.3)', 'contrast(1.15)');
+        break;
+      case 'mono':
+        filterParts.push('grayscale(1)');
+        break;
+      case 'dither':
+      case 'none':
+      default:
+        break;
+    }
+
+    if (settings.hueRotate !== 0) {
+      filterParts.push(`hue-rotate(${settings.hueRotate}deg)`);
+    }
+
+    return filterParts.length > 0 ? filterParts.join(' ') : 'none';
+  }, [settings.filterMode, settings.gaussianBlur, settings.hueRotate]);
+
+  const blockSteps = useMemo(
+    () => buildBlockSteps(settings.refinementStepsCount, settings.finalBlockSize),
+    [settings.refinementStepsCount, settings.finalBlockSize]
   );
 
   const { x0, y0, xScale, yScale } = useMemo(() => {
@@ -168,24 +331,36 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
 
   useEffect(() => {
     resetTilesRef.current = true;
-  }, [settings.blockSteps, settings.maxIterations, settings.smooth, settings.tileSize]);
+  }, [
+    settings.autoIterationsScale,
+    settings.autoMaxIterations,
+    settings.colorMode,
+    settings.colorPeriod,
+    settings.ditherStrength,
+    settings.finalBlockSize,
+    settings.filterMode,
+    settings.maxIterations,
+    settings.paletteSmoothness,
+    settings.refinementStepsCount,
+    settings.smooth,
+    settings.tileSize,
+  ]);
 
   const scheduleTileStep = useCallback((tile: Tile, renderId: number) => {
     const config = renderConfigRef.current;
     if (!config || config.renderId !== renderId) {
       return;
     }
-    if (tile.inFlight || tile.stepIndex >= settings.blockSteps.length) {
+    if (tile.inFlight || tile.stepIndex >= blockSteps.length) {
       return;
     }
 
-    const blockSize = settings.blockSteps[tile.stepIndex] ?? 1;
+    const { max, smooth } = config;
+    const blockSize = blockSteps[tile.stepIndex] ?? 1;
     const rows = Math.ceil(tile.height / blockSize);
     const taskKey = `${tile.id}:${tile.stepIndex}`;
 
     pendingByTaskRef.current.set(taskKey, rows);
-    pendingTasksRef.current += rows;
-    setTaskCount(pendingTasksRef.current);
 
     tile.inFlight = true;
 
@@ -207,22 +382,22 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
         width: tile.width,
         height: rowHeight,
         blockSize,
-        max: settings.maxIterations,
-        smooth: settings.smooth,
+        max,
+        smooth,
       };
       workersRef.current[workerIndex % workersRef.current.length].postMessage(message);
       workerIndex += 1;
     }
     workerIndexRef.current = workerIndex;
-  }, [settings.blockSteps, settings.maxIterations, settings.smooth]);
+  }, [blockSteps]);
 
   const scheduleAllTiles = useCallback((renderId: number) => {
     tileMapRef.current.forEach((tile) => {
-      if (!tile.inFlight && tile.stepIndex < settings.blockSteps.length) {
+      if (!tile.inFlight && tile.stepIndex < blockSteps.length) {
         scheduleTileStep(tile, renderId);
       }
     });
-  }, [scheduleTileStep, settings.blockSteps.length]);
+  }, [blockSteps.length, scheduleTileStep]);
 
   const handleWorkerMessage = useCallback(
     (data: WorkerResponseMessage) => {
@@ -232,28 +407,53 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
         return;
       }
 
-      const { max, palette: activePalette, pscale, smooth } = config;
+      const { max, palette: activePalette, pscale, smooth, colorMode, ditherStrength } = config;
       let index = 0;
+      const paletteSize = activePalette.length;
+      const isCycle = colorMode === 'cycle';
+      const isFixed = colorMode === 'fixed';
+      const hasDither = ditherStrength > 0;
       for (let py = 0; py < data.height; py += data.blockSize) {
         for (let px = 0; px < data.width; px += data.blockSize) {
           const iterationValue = data.values[index++];
           let rgb: number[];
 
           if (smooth) {
-            const rgb1 =
-              iterationValue < max - 1
-                ? activePalette[Math.floor(pscale * iterationValue)]
-                : [0, 0, 0];
-            const rgb2 =
-              iterationValue < max - 1
-                ? activePalette[Math.floor(pscale * (iterationValue + 1))]
-                : [0, 0, 0];
-            rgb = lerpRgb(rgb1, rgb2, iterationValue % 1);
+            if (iterationValue < max) {
+              const scaled = pscale * iterationValue;
+              const dithered = hasDither
+                ? scaled + (hash2d(data.px + px, data.py + py) - 0.5) * ditherStrength
+                : scaled;
+              const baseRaw = Math.floor(dithered);
+              const frac = dithered - baseRaw;
+              const baseIndex = isCycle
+                ? ((baseRaw % paletteSize) + paletteSize) % paletteSize
+                : isFixed
+                  ? Math.min(paletteSize - 2, Math.max(0, baseRaw))
+                  : Math.min(paletteSize - 2, Math.max(0, baseRaw));
+              const nextIndex = isCycle ? (baseIndex + 1) % paletteSize : baseIndex + 1;
+              const rgb1 = activePalette[baseIndex];
+              const rgb2 = activePalette[nextIndex];
+              rgb = lerpRgb(rgb1, rgb2, frac);
+            } else {
+              rgb = [0, 0, 0];
+            }
           } else {
-            rgb =
-              iterationValue < max
-                ? activePalette[Math.floor(pscale * iterationValue)]
-                : [0, 0, 0];
+            if (iterationValue < max) {
+              const scaled = pscale * iterationValue;
+              const dithered = hasDither
+                ? scaled + (hash2d(data.px + px, data.py + py) - 0.5) * ditherStrength
+                : scaled;
+              const baseRaw = Math.floor(dithered);
+              const paletteIndex = isCycle
+                ? ((baseRaw % paletteSize) + paletteSize) % paletteSize
+                : isFixed
+                  ? Math.min(paletteSize - 1, Math.max(0, baseRaw))
+                  : Math.min(paletteSize - 1, Math.max(0, baseRaw));
+              rgb = activePalette[paletteIndex];
+            } else {
+              rgb = [0, 0, 0];
+            }
           }
 
           ctx.fillStyle = `rgb(${Math.floor(rgb[0])},${Math.floor(rgb[1])},${Math.floor(rgb[2])})`;
@@ -280,11 +480,16 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
         pendingByTaskRef.current.set(taskKey, remainingForTask);
       }
 
-      const remainingTotal = Math.max(pendingTasksRef.current - 1, 0);
-      pendingTasksRef.current = remainingTotal;
-      setTaskCount(remainingTotal);
+      if (pendingByTaskRef.current.size === 0) {
+        const allComplete = Array.from(tileMapRef.current.values()).every(
+          (tile) => tile.stepIndex >= blockSteps.length
+        );
+        if (allComplete) {
+          setRendering(false);
+        }
+      }
     },
-    [scheduleTileStep]
+    [blockSteps.length, scheduleTileStep, setRendering]
   );
 
   useEffect(() => {
@@ -412,6 +617,11 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
       }
 
       canvas.style.transform = `translate(${dx}px, ${dy}px)`;
+      queueDisplayNavUpdate({
+        x: drag.startNav.x - dx * drag.startScale.xScale,
+        y: drag.startNav.y - dy * drag.startScale.yScale,
+        z: drag.startNav.z,
+      });
     };
 
     const handlePointerUp = (event: PointerEvent) => {
@@ -432,6 +642,8 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
 
       const moved = drag.moved || Math.abs(rawDx) > 2 || Math.abs(rawDy) > 2;
       if (!moved) {
+        displayNavRef.current = navRef.current;
+        setDisplayNav(navRef.current);
         return;
       }
 
@@ -454,11 +666,14 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
 
       shiftCanvas(dx, dy);
       suppressClickRef.current = true;
-      setNav({
+      const nextNav = {
         x: drag.startNav.x - dx * drag.startScale.xScale,
         y: drag.startNav.y - dy * drag.startScale.yScale,
         z: drag.startNav.z,
-      });
+      };
+      displayNavRef.current = nextNav;
+      setDisplayNav(nextNav);
+      setNav(nextNav);
     };
 
     const handlePointerCancel = (event: PointerEvent) => {
@@ -471,6 +686,8 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
       canvas.style.cursor = 'grab';
       canvas.releasePointerCapture(event.pointerId);
       dragStateRef.current = { ...drag, active: false, pointerId: null };
+      displayNavRef.current = navRef.current;
+      setDisplayNav(navRef.current);
     };
 
     const handleClick = (event: MouseEvent) => {
@@ -633,30 +850,51 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
     const renderId = renderIdRef.current + 1;
     renderIdRef.current = renderId;
 
-      const smooth = settings.smooth;
-      const pscale = (palette.length - 1) / settings.maxIterations;
-      renderConfigRef.current = {
-        renderId,
-        max: settings.maxIterations,
-        pscale,
-        palette,
-        smooth,
-      };
+    const smooth = settings.smooth;
+    const pscale =
+      settings.colorMode === 'normalize'
+        ? (palette.length - 1) / effectiveMaxIterations
+        : settings.colorMode === 'cycle'
+          ? (palette.length - 1) / Math.max(1, settings.colorPeriod)
+          : (palette.length - 1) / MAX_PALETTE_ITERATIONS;
+    renderConfigRef.current = {
+      renderId,
+      max: effectiveMaxIterations,
+      pscale,
+      palette,
+      smooth,
+      colorMode: settings.colorMode,
+      ditherStrength:
+        settings.filterMode === 'dither' ? Math.max(0, settings.ditherStrength) : 0,
+    };
 
     pendingByTaskRef.current.clear();
-    pendingTasksRef.current = 0;
-    setTaskCount(0);
     tileMapRef.current.forEach((tile) => {
       tile.inFlight = false;
     });
+
+    const hasWork = Array.from(tileMapRef.current.values()).some(
+      (tile) => tile.stepIndex < blockSteps.length
+    );
+    setRendering(hasWork);
 
     scheduleAllTiles(renderId);
   }, [
     height,
     palette,
     scheduleAllTiles,
-    settings.blockSteps,
+    setRendering,
+    blockSteps,
+    effectiveMaxIterations,
+    settings.autoIterationsScale,
+    settings.autoMaxIterations,
+    settings.colorMode,
+    settings.colorPeriod,
+    settings.ditherStrength,
+    settings.filterMode,
     settings.maxIterations,
+    settings.finalBlockSize,
+    settings.refinementStepsCount,
     settings.smooth,
     settings.tileSize,
     width,
@@ -668,8 +906,12 @@ const FractalCanvas = ({ width, height, loc, settings }: FractalCanvasProps) => 
 
   return (
     <div>
-      <canvas ref={canvasRef} width={width} height={height} />
-      <InfoPanel nav={nav} tasks={taskCount} />
+      <canvas ref={canvasRef} width={width} height={height} style={{ filter: canvasFilter }} />
+      <InfoPanel
+        nav={displayNav}
+        isRendering={isRendering}
+        maxIterations={effectiveMaxIterations}
+      />
     </div>
   );
 };

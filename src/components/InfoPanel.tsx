@@ -1,4 +1,5 @@
 import Box from '@mui/material/Box';
+import Typography from '@mui/material/Typography';
 
 type InfoPanelProps = {
   nav: {
@@ -6,56 +7,41 @@ type InfoPanelProps = {
     y: number;
     z: number;
   };
-  tasks: number;
+  isRendering: boolean;
+  maxIterations: number;
 };
 
-const InfoPanel = ({ nav, tasks }: InfoPanelProps) => {
+const formatValue = (value: number) => value.toFixed(6);
+
+const InfoPanel = ({ nav, isRendering, maxIterations }: InfoPanelProps) => {
   return (
     <Box
       sx={{
-        position: 'absolute',
-        right: 10,
-        bottom: 10,
-        padding: 1.25,
-        backgroundColor: 'rgba(0,0,0,0.5)',
-        borderRadius: 2,
+        position: 'fixed',
+        left: 0,
+        right: 0,
+        bottom: 0,
+        py: 0.5,
+        px: 2,
+        display: 'flex',
+        alignItems: 'center',
+        justifyContent: 'space-between',
+        gap: 2,
+        backgroundColor: 'rgba(0,0,0,0.6)',
+        color: 'white',
+        fontSize: 12,
+        pointerEvents: 'none',
       }}
     >
-      <Box
-        component="table"
-        sx={{
-          color: 'white',
-          fontSize: 12,
-          borderSpacing: 0,
-          '& th': {
-            textAlign: 'left',
-          },
-          '& td': {
-            textAlign: 'right',
-            minWidth: 50,
-            paddingLeft: 1.25,
-          },
-        }}
-      >
-        <tbody>
-          <tr>
-            <th>X</th>
-            <td>{nav.x}</td>
-          </tr>
-          <tr>
-            <th>Y</th>
-            <td>{nav.y}</td>
-          </tr>
-          <tr>
-            <th>Z</th>
-            <td>{nav.z}</td>
-          </tr>
-          <tr>
-            <th>Tasks</th>
-            <td>{tasks}</td>
-          </tr>
-        </tbody>
+      <Box sx={{ display: 'flex', gap: 2, flexWrap: 'wrap' }}>
+        <Typography variant="caption">X {formatValue(nav.x)}</Typography>
+        <Typography variant="caption">Y {formatValue(nav.y)}</Typography>
+        <Typography variant="caption">Z {formatValue(nav.z)}</Typography>
+        <Typography variant="caption">Max {Math.round(maxIterations)}</Typography>
       </Box>
+      <Typography variant="caption">
+        {isRendering ? 'Rendering…' : 'Idle'}
+      </Typography>
     </Box>
   );
 };

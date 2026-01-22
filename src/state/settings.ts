@@ -2,14 +2,34 @@ export type RenderSettings = {
   tileSize: number;
   maxIterations: number;
   smooth: boolean;
-  blockSteps: number[];
+  refinementStepsCount: number;
+  finalBlockSize: number;
+  colorMode: 'normalize' | 'cycle' | 'fixed';
+  colorPeriod: number;
+  autoMaxIterations: boolean;
+  autoIterationsScale: number;
+  filterMode: 'none' | 'gaussianSoft' | 'vivid' | 'mono' | 'dither';
+  gaussianBlur: number;
+  ditherStrength: number;
+  paletteSmoothness: number;
+  hueRotate: number;
 };
 
 export const defaultSettings: RenderSettings = {
   tileSize: 256,
   maxIterations: 256,
   smooth: true,
-  blockSteps: [256, 64, 16, 4, 1],
+  refinementStepsCount: 5,
+  finalBlockSize: 1,
+  colorMode: 'normalize',
+  colorPeriod: 256,
+  autoMaxIterations: false,
+  autoIterationsScale: 128,
+  filterMode: 'none',
+  gaussianBlur: 0.6,
+  ditherStrength: 0.35,
+  paletteSmoothness: 0,
+  hueRotate: 0,
 };
 
 export type SettingsAction = {

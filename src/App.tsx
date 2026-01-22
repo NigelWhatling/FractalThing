@@ -1,4 +1,4 @@
-import { useEffect, useReducer, useRef, useState } from 'react';
+import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { BrowserRouter, Route, Routes, useParams } from 'react-router-dom';
 import './App.scss';
 import FractalCanvas from './components/FractalCanvas';
@@ -43,11 +43,17 @@ const useWindowSize = (): WindowSize => {
 const FractalRoute = () => {
   const { loc } = useParams();
   const { width, height } = useWindowSize();
-  const [settings] = useReducer(settingsReducer, defaultSettings);
+  const [settings, dispatchSettings] = useReducer(settingsReducer, defaultSettings);
+  const updateSettings = useCallback(
+    (payload: Partial<typeof defaultSettings>) => {
+      dispatchSettings({ type: 'update', payload });
+    },
+    []
+  );
 
   return (
     <div className="App">
-      <SideDrawer />
+      <SideDrawer settings={settings} onUpdateSettings={updateSettings} />
       <FractalCanvas loc={loc} width={width} height={height} settings={settings} />
     </div>
   );
