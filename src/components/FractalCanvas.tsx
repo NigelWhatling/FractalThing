@@ -1,4 +1,5 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import PaletteGenerator from '../util/PaletteGenerator';
 import InfoPanel from './InfoPanel';
 import { START, type WorkerResponseMessage, type WorkerStartMessage } from '../workers/WorkerCommands';
@@ -162,6 +163,17 @@ const parseNavFromLoc = (loc?: string): Navigation => {
   };
 };
 
+const formatNavValue = (value: number) => {
+  if (!Number.isFinite(value)) {
+    return '0';
+  }
+  const fixed = value.toFixed(10);
+  return fixed.replace(/\.?0+$/, '');
+};
+
+const buildLocFromNav = (nav: Navigation) =>
+  `@${formatNavValue(nav.x)},${formatNavValue(nav.y)}x${formatNavValue(nav.z)}`;
+
 const FractalCanvas = ({
   width,
   height,
@@ -170,6 +182,9 @@ const FractalCanvas = ({
   interactionMode,
   resetSignal = 0,
 }: FractalCanvasProps) => {
+  const navigate = useNavigate();
+  const location = useLocation();
+  const { algorithm } = useParams();
   const [nav, setNav] = useState<Navigation>(() => parseNavFromLoc(loc));
   const [isRendering, setIsRendering] = useState(false);
   const [displayNav, setDisplayNav] = useState<Navigation>(() => parseNavFromLoc(loc));
@@ -441,6 +456,46 @@ const FractalCanvas = ({
     setNav(parseNavFromLoc(loc));
     resetTilesRef.current = true;
   }, [loc]);
+
+  useEffect(() => {
+    if (!settings.autoUpdateUrl) {
+      return;
+    }
+    const locString = buildLocFromNav(nav);
+    const searchParams = new URLSearchParams(location.search);
+    if (algorithm) {
+      if (searchParams.has('loc')) {
+        searchParams.delete('loc');
+      }
+      searchParams.delete('x');
+      searchParams.delete('y');
+      searchParams.delete('z');
+      const nextPath = `/${algorithm}/${locString}`;
+      const nextSearch = searchParams.toString();
+      const nextUrl = `${nextPath}${nextSearch ? `?${nextSearch}` : ''}`;
+      if (`${location.pathname}${location.search}` !== nextUrl) {
+        navigate(nextUrl, { replace: true });
+      }
+      return;
+    }
+
+    searchParams.delete('loc');
+    searchParams.set('x', formatNavValue(nav.x));
+    searchParams.set('y', formatNavValue(nav.y));
+    searchParams.set('z', formatNavValue(nav.z));
+    const nextSearch = searchParams.toString();
+    const nextUrl = `${location.pathname}?${nextSearch}`;
+    if (`${location.pathname}${location.search}` !== nextUrl) {
+      navigate(nextUrl, { replace: true });
+    }
+  }, [
+    nav,
+    settings.autoUpdateUrl,
+    algorithm,
+    location.pathname,
+    location.search,
+    navigate,
+  ]);
 
   useEffect(() => {
     if (resetSignal === 0) {

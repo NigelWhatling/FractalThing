@@ -14,6 +14,7 @@ export type RenderSettings = {
   paletteSmoothness: number;
   hueRotate: number;
   workerCount: number;
+  autoUpdateUrl: boolean;
 };
 
 const getDefaultWorkerCount = () => {
@@ -39,6 +40,7 @@ export const defaultSettings: RenderSettings = {
   paletteSmoothness: 0,
   hueRotate: 0,
   workerCount: getDefaultWorkerCount(),
+  autoUpdateUrl: true,
 };
 
 export type SettingsAction = {

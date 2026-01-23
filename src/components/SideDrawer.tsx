@@ -643,6 +643,32 @@ const SideDrawer = ({ settings, onUpdateSettings, theme, onToggleTheme }: SideDr
                       />
                     </button>
                   </div>
+                  <div className="flex items-center justify-between rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-3 dark:border-white/10 dark:bg-white/5">
+                    <LabelWithHelp
+                      label="Auto update URL"
+                      tooltip="Keep the URL in sync with your current position and zoom."
+                      variant="body"
+                    />
+                    <button
+                      type="button"
+                      role="switch"
+                      aria-checked={settings.autoUpdateUrl}
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full border border-slate-200/70 transition dark:border-white/10 ${
+                        settings.autoUpdateUrl
+                          ? 'bg-cyan-500/25 dark:bg-cyan-400/30'
+                          : 'bg-slate-300/70 dark:bg-white/15'
+                      }`}
+                      onClick={() =>
+                        onUpdateSettings({ autoUpdateUrl: !settings.autoUpdateUrl })
+                      }
+                    >
+                      <span
+                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                          settings.autoUpdateUrl ? 'translate-x-5' : 'translate-x-0.5'
+                        }`}
+                      />
+                    </button>
+                  </div>
                 </div>
               </Section>
             </div>

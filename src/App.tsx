@@ -1,5 +1,5 @@
-import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
-import { BrowserRouter, Route, Routes, useParams } from 'react-router-dom';
+import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import { BrowserRouter, Route, Routes, useLocation, useParams } from 'react-router-dom';
 import FractalCanvas from './components/FractalCanvas';
 import InteractionModeToggle, { type InteractionMode } from './components/InteractionModeToggle';
 import SideDrawer from './components/SideDrawer';
@@ -44,10 +44,29 @@ const useWindowSize = (): WindowSize => {
 
 const FractalRoute = () => {
   const { loc } = useParams();
+  const location = useLocation();
   const { width, height } = useWindowSize();
   const [settings, dispatchSettings] = useReducer(settingsReducer, defaultSettings);
   const [interactionMode, setInteractionMode] = useState<InteractionMode>('grab');
   const [resetSignal, setResetSignal] = useState(0);
+  const locParam = useMemo(() => {
+    if (loc) {
+      return loc;
+    }
+    const searchParams = new URLSearchParams(location.search);
+    const xParam = searchParams.get('x');
+    const yParam = searchParams.get('y');
+    const zParam = searchParams.get('z');
+    if (xParam && yParam) {
+      const x = Number(xParam);
+      const y = Number(yParam);
+      const z = zParam ? Number(zParam) : 1;
+      if (Number.isFinite(x) && Number.isFinite(y) && Number.isFinite(z)) {
+        return `@${xParam},${yParam}x${zParam ?? '1'}`;
+      }
+    }
+    return undefined;
+  }, [loc, location.search]);
   const [theme, setTheme] = useState<ThemeMode>(() => {
     if (typeof window === 'undefined') {
       return 'dark';
@@ -91,7 +110,7 @@ const FractalRoute = () => {
         onReset={() => setResetSignal((value) => value + 1)}
       />
       <FractalCanvas
-        loc={loc}
+        loc={locParam}
         width={width}
         height={height}
         settings={settings}
