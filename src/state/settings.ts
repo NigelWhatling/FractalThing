@@ -4,8 +4,8 @@ export type RenderSettings = {
   smooth: boolean;
   refinementStepsCount: number;
   finalBlockSize: number;
-  colorMode: 'normalize' | 'cycle' | 'fixed';
-  colorPeriod: number;
+  colourMode: 'normalize' | 'cycle' | 'fixed';
+  colourPeriod: number;
   autoMaxIterations: boolean;
   autoIterationsScale: number;
   filterMode: 'none' | 'gaussianSoft' | 'vivid' | 'mono' | 'dither';
@@ -16,22 +16,29 @@ export type RenderSettings = {
   workerCount: number;
 };
 
+const getDefaultWorkerCount = () => {
+  if (typeof navigator === 'undefined') {
+    return 8;
+  }
+  return navigator.hardwareConcurrency || 8;
+};
+
 export const defaultSettings: RenderSettings = {
   tileSize: 256,
   maxIterations: 256,
   smooth: true,
-  refinementStepsCount: 5,
+  refinementStepsCount: 3,
   finalBlockSize: 1,
-  colorMode: 'normalize',
-  colorPeriod: 256,
-  autoMaxIterations: false,
+  colourMode: 'cycle',
+  colourPeriod: 256,
+  autoMaxIterations: true,
   autoIterationsScale: 128,
   filterMode: 'none',
   gaussianBlur: 0.6,
   ditherStrength: 0.35,
   paletteSmoothness: 0,
   hueRotate: 0,
-  workerCount: 8,
+  workerCount: getDefaultWorkerCount(),
 };
 
 export type SettingsAction = {

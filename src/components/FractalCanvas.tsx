@@ -26,7 +26,7 @@ type RenderConfig = {
   pscale: number;
   palette: number[][];
   smooth: boolean;
-  colorMode: RenderSettings['colorMode'];
+  colourMode: RenderSettings['colourMode'];
   ditherStrength: number;
 };
 
@@ -443,8 +443,8 @@ const FractalCanvas = ({ width, height, loc, settings, interactionMode }: Fracta
   }, [
     settings.autoIterationsScale,
     settings.autoMaxIterations,
-    settings.colorMode,
-    settings.colorPeriod,
+    settings.colourMode,
+    settings.colourPeriod,
     settings.ditherStrength,
     settings.finalBlockSize,
     settings.filterMode,
@@ -520,11 +520,11 @@ const FractalCanvas = ({ width, height, loc, settings, interactionMode }: Fracta
         return;
       }
 
-      const { max, palette: activePalette, pscale, smooth, colorMode, ditherStrength } = config;
+      const { max, palette: activePalette, pscale, smooth, colourMode, ditherStrength } = config;
       let index = 0;
       const paletteSize = activePalette.length;
-      const isCycle = colorMode === 'cycle';
-      const isFixed = colorMode === 'fixed';
+      const isCycle = colourMode === 'cycle';
+      const isFixed = colourMode === 'fixed';
       const hasDither = ditherStrength > 0;
       for (let py = 0; py < response.height; py += response.blockSize) {
         for (let px = 0; px < response.width; px += response.blockSize) {
@@ -1069,10 +1069,10 @@ const FractalCanvas = ({ width, height, loc, settings, interactionMode }: Fracta
 
     const smooth = settings.smooth;
     const pscale =
-      settings.colorMode === 'normalize'
+      settings.colourMode === 'normalize'
         ? (palette.length - 1) / effectiveMaxIterations
-        : settings.colorMode === 'cycle'
-          ? (palette.length - 1) / Math.max(1, settings.colorPeriod)
+        : settings.colourMode === 'cycle'
+          ? (palette.length - 1) / Math.max(1, settings.colourPeriod)
           : (palette.length - 1) / MAX_PALETTE_ITERATIONS;
     renderConfigRef.current = {
       renderId,
@@ -1080,7 +1080,7 @@ const FractalCanvas = ({ width, height, loc, settings, interactionMode }: Fracta
       pscale,
       palette,
       smooth,
-      colorMode: settings.colorMode,
+      colourMode: settings.colourMode,
       ditherStrength:
         settings.filterMode === 'dither' ? Math.max(0, settings.ditherStrength) : 0,
     };
@@ -1105,8 +1105,8 @@ const FractalCanvas = ({ width, height, loc, settings, interactionMode }: Fracta
     effectiveMaxIterations,
     settings.autoIterationsScale,
     settings.autoMaxIterations,
-    settings.colorMode,
-    settings.colorPeriod,
+    settings.colourMode,
+    settings.colourPeriod,
     settings.ditherStrength,
     settings.filterMode,
     settings.maxIterations,

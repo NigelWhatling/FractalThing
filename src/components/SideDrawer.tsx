@@ -76,7 +76,7 @@ const SideDrawer = ({ settings, onUpdateSettings }: SideDrawerProps) => {
   const [iterationsDraft, setIterationsDraft] = useState(settings.maxIterations);
   const [refinementPreset, setRefinementPreset] = useState(0);
   const [finalQualityPreset, setFinalQualityPreset] = useState(0);
-  const [colorPeriodDraft, setColorPeriodDraft] = useState(settings.colorPeriod);
+  const [colourPeriodDraft, setColourPeriodDraft] = useState(settings.colourPeriod);
   const [autoIterationsScaleDraft, setAutoIterationsScaleDraft] = useState(
     settings.autoIterationsScale
   );
@@ -105,8 +105,8 @@ const SideDrawer = ({ settings, onUpdateSettings }: SideDrawerProps) => {
   }, [settings.maxIterations]);
 
   useEffect(() => {
-    setColorPeriodDraft(settings.colorPeriod);
-  }, [settings.colorPeriod]);
+    setColourPeriodDraft(settings.colourPeriod);
+  }, [settings.colourPeriod]);
 
   useEffect(() => {
     setAutoIterationsScaleDraft(settings.autoIterationsScale);
@@ -293,11 +293,11 @@ const SideDrawer = ({ settings, onUpdateSettings }: SideDrawerProps) => {
                     tooltip="How iterations map to the palette: Normalise shifts with max, Cycle repeats, Fixed uses 2048."
                   />
                   <Select
-                    value={settings.colorMode}
+                    value={settings.colourMode}
                     aria-label="Colour mode"
                     onChange={(event) =>
                       onUpdateSettings({
-                        colorMode: event.target.value as typeof settings.colorMode,
+                        colourMode: event.target.value as typeof settings.colourMode,
                       })
                     }
                   >
@@ -425,14 +425,14 @@ const SideDrawer = ({ settings, onUpdateSettings }: SideDrawerProps) => {
                     />
                   </Box>
                 )}
-                {settings.colorMode === 'cycle' && (
+                {settings.colourMode === 'cycle' && (
                   <Box>
                     <LabelWithHelp
                       label="Colour period"
                       tooltip="Number of iterations per full palette cycle. Lower values repeat colours more often."
                     />
                     <Slider
-                      value={colorPeriodDraft}
+                      value={colourPeriodDraft}
                       min={64}
                       max={2048}
                       step={null}
@@ -441,11 +441,11 @@ const SideDrawer = ({ settings, onUpdateSettings }: SideDrawerProps) => {
                       sx={alignedMarkSx}
                       onChange={(_, value) => {
                         const nextValue = Array.isArray(value) ? value[0] : value;
-                        setColorPeriodDraft(Math.round(nextValue));
+                        setColourPeriodDraft(Math.round(nextValue));
                       }}
                       onChangeCommitted={(_, value) => {
                         const nextValue = Array.isArray(value) ? value[0] : value;
-                        onUpdateSettings({ colorPeriod: Math.max(64, Math.round(nextValue)) });
+                        onUpdateSettings({ colourPeriod: Math.max(64, Math.round(nextValue)) });
                       }}
                     />
                   </Box>
