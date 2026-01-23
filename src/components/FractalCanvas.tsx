@@ -18,6 +18,7 @@ type FractalCanvasProps = {
   loc?: string;
   settings: RenderSettings;
   interactionMode: InteractionMode;
+  resetSignal?: number;
 };
 
 type RenderConfig = {
@@ -161,7 +162,14 @@ const parseNavFromLoc = (loc?: string): Navigation => {
   };
 };
 
-const FractalCanvas = ({ width, height, loc, settings, interactionMode }: FractalCanvasProps) => {
+const FractalCanvas = ({
+  width,
+  height,
+  loc,
+  settings,
+  interactionMode,
+  resetSignal = 0,
+}: FractalCanvasProps) => {
   const [nav, setNav] = useState<Navigation>(() => parseNavFromLoc(loc));
   const [isRendering, setIsRendering] = useState(false);
   const [displayNav, setDisplayNav] = useState<Navigation>(() => parseNavFromLoc(loc));
@@ -433,6 +441,46 @@ const FractalCanvas = ({ width, height, loc, settings, interactionMode }: Fracta
     setNav(parseNavFromLoc(loc));
     resetTilesRef.current = true;
   }, [loc]);
+
+  useEffect(() => {
+    if (resetSignal === 0) {
+      return;
+    }
+    const defaultNav = parseNavFromLoc();
+    navRef.current = defaultNav;
+    displayNavRef.current = defaultNav;
+    setNav(defaultNav);
+    setDisplayNav(defaultNav);
+    pendingDisplayNavRef.current = null;
+    if (displayNavRafRef.current !== null) {
+      window.cancelAnimationFrame(displayNavRafRef.current);
+      displayNavRafRef.current = null;
+    }
+    selectionStateRef.current = {
+      active: false,
+      pointerId: null,
+      startX: 0,
+      startY: 0,
+    };
+    selectionRectRef.current = null;
+    setSelectionRect(null);
+    panShiftRef.current = null;
+    dragStateRef.current = {
+      active: false,
+      pointerId: null,
+      startX: 0,
+      startY: 0,
+      startNav: defaultNav,
+      startScale: { xScale: 0, yScale: 0 },
+      moved: false,
+    };
+    const canvas = canvasRef.current;
+    if (canvas) {
+      canvas.style.transform = 'translate(0px, 0px)';
+      canvas.style.cursor = interactionMode === 'grab' ? 'grab' : 'crosshair';
+    }
+    resetTilesRef.current = true;
+  }, [resetSignal, interactionMode]);
 
   useEffect(() => {
     resetTilesRef.current = true;
@@ -1120,20 +1168,22 @@ const FractalCanvas = ({ width, height, loc, settings, interactionMode }: Fracta
   ]);
 
   return (
-    <div style={{ position: 'relative', width, height }}>
-      <canvas ref={canvasRef} width={width} height={height} style={{ filter: canvasFilter }} />
+    <div style={{ width, height }} className="bg-black">
+      <canvas
+        ref={canvasRef}
+        width={width}
+        height={height}
+        style={{ filter: canvasFilter }}
+        className="block touch-none bg-black"
+      />
       {selectionRect && (
         <div
+          className="fixed border border-cyan-400/70 bg-cyan-400/10 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.2)] dark:border-cyan-300/70 dark:bg-cyan-300/10 pointer-events-none"
           style={{
-            position: 'absolute',
             left: selectionRect.x,
             top: selectionRect.y,
             width: selectionRect.width,
             height: selectionRect.height,
-            border: '1px solid rgba(255,255,255,0.9)',
-            backgroundColor: 'rgba(255,255,255,0.12)',
-            boxShadow: '0 0 0 1px rgba(0,0,0,0.4) inset',
-            pointerEvents: 'none',
           }}
         />
       )}

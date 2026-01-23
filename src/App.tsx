@@ -1,6 +1,5 @@
 import { useCallback, useEffect, useReducer, useRef, useState } from 'react';
 import { BrowserRouter, Route, Routes, useParams } from 'react-router-dom';
-import './App.scss';
 import FractalCanvas from './components/FractalCanvas';
 import InteractionModeToggle, { type InteractionMode } from './components/InteractionModeToggle';
 import SideDrawer from './components/SideDrawer';
@@ -10,6 +9,8 @@ type WindowSize = {
   width: number;
   height: number;
 };
+
+type ThemeMode = 'light' | 'dark';
 
 const useWindowSize = (): WindowSize => {
   const [size, setSize] = useState<WindowSize>({
@@ -46,6 +47,17 @@ const FractalRoute = () => {
   const { width, height } = useWindowSize();
   const [settings, dispatchSettings] = useReducer(settingsReducer, defaultSettings);
   const [interactionMode, setInteractionMode] = useState<InteractionMode>('grab');
+  const [resetSignal, setResetSignal] = useState(0);
+  const [theme, setTheme] = useState<ThemeMode>(() => {
+    if (typeof window === 'undefined') {
+      return 'dark';
+    }
+    const stored = window.localStorage.getItem('theme');
+    if (stored === 'light' || stored === 'dark') {
+      return stored;
+    }
+    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+  });
   const updateSettings = useCallback(
     (payload: Partial<typeof defaultSettings>) => {
       dispatchSettings({ type: 'update', payload });
@@ -53,16 +65,38 @@ const FractalRoute = () => {
     []
   );
 
+  useEffect(() => {
+    const root = document.documentElement;
+    const isDark = theme === 'dark';
+    root.classList.toggle('dark', isDark);
+    root.style.colorScheme = theme;
+    window.localStorage.setItem('theme', theme);
+  }, [theme]);
+
   return (
-    <div className="App">
-      <SideDrawer settings={settings} onUpdateSettings={updateSettings} />
-      <InteractionModeToggle value={interactionMode} onChange={setInteractionMode} />
+    <div className="relative h-screen w-screen overflow-hidden bg-gradient-to-br from-slate-50 via-slate-100 to-slate-200 text-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 dark:text-slate-100">
+      <div
+        className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(56,189,248,0.15),transparent_45%),radial-gradient(circle_at_85%_80%,rgba(14,165,233,0.12),transparent_50%)] dark:opacity-80"
+        aria-hidden
+      />
+      <SideDrawer
+        settings={settings}
+        onUpdateSettings={updateSettings}
+        theme={theme}
+        onToggleTheme={() => setTheme((value) => (value === 'dark' ? 'light' : 'dark'))}
+      />
+      <InteractionModeToggle
+        value={interactionMode}
+        onChange={setInteractionMode}
+        onReset={() => setResetSignal((value) => value + 1)}
+      />
       <FractalCanvas
         loc={loc}
         width={width}
         height={height}
         settings={settings}
         interactionMode={interactionMode}
+        resetSignal={resetSignal}
       />
     </div>
   );
