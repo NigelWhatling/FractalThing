@@ -795,11 +795,11 @@ const FractalCanvas = ({ width, height, loc, settings, interactionMode }: Fracta
         );
         queueSelectionRectUpdate(null);
 
-        if (rect.width < 4 || rect.height < 4) {
-          return;
-        }
+      if (rect.width < 4 || rect.height < 4) {
+        return;
+      }
 
-        const { x0: bx0, y0: by0, xScale: bxScale, yScale: byScale } = boundsRef.current;
+      const { x0: bx0, y0: by0, xScale: bxScale, yScale: byScale } = boundsRef.current;
         const xMin = bx0 + bxScale * rect.x;
         const yMin = by0 + byScale * rect.y;
         const xMax = bx0 + bxScale * (rect.x + rect.width);
@@ -814,11 +814,12 @@ const FractalCanvas = ({ width, height, loc, settings, interactionMode }: Fracta
           z: navRef.current.z * scale,
         };
         resetTilesRef.current = true;
-        displayNavRef.current = nextNav;
-        setDisplayNav(nextNav);
-        setNav(nextNav);
-        return;
-      }
+      displayNavRef.current = nextNav;
+      setDisplayNav(nextNav);
+      setNav(nextNav);
+      suppressClickRef.current = true;
+      return;
+    }
 
       const drag = dragStateRef.current;
       if (!drag.active || drag.pointerId !== event.pointerId) {
@@ -904,10 +905,6 @@ const FractalCanvas = ({ width, height, loc, settings, interactionMode }: Fracta
     };
 
     const handleClick = (event: MouseEvent) => {
-      if (interactionModeRef.current === 'select') {
-        return;
-      }
-
       if (suppressClickRef.current) {
         suppressClickRef.current = false;
         return;
