@@ -79,6 +79,7 @@ type SelectionRect = {
 const BASE_NUMBER_RANGE = 1;
 const BASE_BLOCK_SIZE = 256;
 const MAX_PALETTE_ITERATIONS = 2048;
+const PRECISION_EPS_SCALE = 512;
 
 const parseFloatWithDefault = (value: string | undefined, fallback: number) => {
   if (value === undefined) {
@@ -434,6 +435,12 @@ const FractalCanvas = ({
     };
   }, [nav.x, nav.y, nav.z, width, height]);
 
+  const precisionWarning = useMemo(() => {
+    const scale = Math.max(1, Math.abs(nav.x), Math.abs(nav.y));
+    const limit = Number.EPSILON * PRECISION_EPS_SCALE * scale;
+    return xScale < limit || yScale < limit;
+  }, [nav.x, nav.y, xScale, yScale]);
+
   useEffect(() => {
     boundsRef.current = { x0, y0, xScale, yScale };
   }, [x0, y0, xScale, yScale]);
@@ -535,7 +542,7 @@ const FractalCanvas = ({
       canvas.style.cursor = interactionMode === 'grab' ? 'grab' : 'crosshair';
     }
     resetTilesRef.current = true;
-  }, [resetSignal, interactionMode]);
+  }, [resetSignal]);
 
   useEffect(() => {
     resetTilesRef.current = true;
@@ -1028,6 +1035,7 @@ const FractalCanvas = ({
     };
 
     const handleWheel = (event: WheelEvent) => {
+      event.preventDefault();
       resetTilesRef.current = true;
       const { x0: bx0, y0: by0, xScale: bxScale, yScale: byScale } = boundsRef.current;
       const currentNav = navRef.current;
@@ -1045,12 +1053,14 @@ const FractalCanvas = ({
       setNav({ x: nextX, y: nextY, z: nextZ });
     };
 
+    const wheelOptions: AddEventListenerOptions = { passive: false };
+
     canvas.addEventListener('pointerdown', handlePointerDown);
     canvas.addEventListener('pointermove', handlePointerMove);
     canvas.addEventListener('pointerup', handlePointerUp);
     canvas.addEventListener('pointercancel', handlePointerCancel);
     canvas.addEventListener('click', handleClick);
-    canvas.addEventListener('wheel', handleWheel);
+    canvas.addEventListener('wheel', handleWheel, wheelOptions);
 
     return () => {
       canvas.removeEventListener('pointerdown', handlePointerDown);
@@ -1058,7 +1068,7 @@ const FractalCanvas = ({
       canvas.removeEventListener('pointerup', handlePointerUp);
       canvas.removeEventListener('pointercancel', handlePointerCancel);
       canvas.removeEventListener('click', handleClick);
-      canvas.removeEventListener('wheel', handleWheel);
+      canvas.removeEventListener('wheel', handleWheel, wheelOptions);
     };
   }, [computeSelectionRect, queueDisplayNavUpdate, queueSelectionRectUpdate]);
 
@@ -1246,6 +1256,7 @@ const FractalCanvas = ({
         nav={displayNav}
         isRendering={isRendering}
         maxIterations={effectiveMaxIterations}
+        precisionWarning={precisionWarning}
       />
     </div>
   );
