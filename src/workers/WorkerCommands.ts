@@ -1,3 +1,5 @@
+import type { FractalAlgorithm } from '../util/fractals';
+
 export const START = 'start' as const;
 export const STOP = 'stop' as const;
 
@@ -17,6 +19,9 @@ export type WorkerStartMessage = {
   blockSize: number;
   max: number;
   smooth: boolean;
+  algorithm: FractalAlgorithm;
+  juliaCr: number;
+  juliaCi: number;
 };
 
 export type WorkerStopMessage = {

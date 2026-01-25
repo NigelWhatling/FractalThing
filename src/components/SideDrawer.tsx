@@ -11,12 +11,21 @@ import PaletteGenerator, {
   DEFAULT_PALETTE_STOPS,
   type PaletteStop,
 } from '../util/PaletteGenerator';
+import {
+  DEFAULT_JULIA,
+  FRACTAL_OPTIONS,
+  getDefaultView,
+  normaliseAlgorithm,
+  type FractalAlgorithm,
+} from '../util/fractals';
 import { START } from '../workers/WorkerCommands';
 import type { RenderSettings } from '../state/settings';
 
 type SideDrawerProps = {
   settings: RenderSettings;
   onUpdateSettings: (payload: Partial<RenderSettings>) => void;
+  algorithm: FractalAlgorithm;
+  onChangeAlgorithm: (algorithm: FractalAlgorithm) => void;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
   loc?: string;
@@ -105,6 +114,8 @@ const Section = ({
 const SideDrawer = ({
   settings,
   onUpdateSettings,
+  algorithm,
+  onChangeAlgorithm,
   theme,
   onToggleTheme,
   loc,
@@ -160,8 +171,10 @@ const SideDrawer = ({
   } | null>(null);
   const previewRenderIdRef = useRef(0);
 
-  const parseNavFromLoc = (value?: string) => {
-    const defaults = { x: -0.5, y: 0, z: 1 };
+  const resolvedAlgorithm = useMemo(() => normaliseAlgorithm(algorithm), [algorithm]);
+
+  const parseNavFromLoc = (value?: string, fallback?: { x: number; y: number; z: number }) => {
+    const defaults = fallback ?? { x: -0.5, y: 0, z: 1 };
     if (!value) {
       return defaults;
     }
@@ -181,7 +194,10 @@ const SideDrawer = ({
     };
   };
 
-  const previewNav = useMemo(() => parseNavFromLoc(loc), [loc]);
+  const previewNav = useMemo(
+    () => parseNavFromLoc(loc, getDefaultView(resolvedAlgorithm)),
+    [loc, resolvedAlgorithm]
+  );
 
   const workerMax = useMemo(
     () =>
@@ -578,6 +594,9 @@ const SideDrawer = ({
       blockSize: 1,
       max: Math.round(maxIterations),
       smooth: settings.smooth,
+      algorithm: resolvedAlgorithm,
+      juliaCr: DEFAULT_JULIA.real,
+      juliaCi: DEFAULT_JULIA.imag,
     });
 
     return () => {
@@ -588,6 +607,7 @@ const SideDrawer = ({
     previewNav.x,
     previewNav.y,
     previewNav.z,
+    resolvedAlgorithm,
     settings.autoIterationsScale,
     settings.autoMaxIterations,
     settings.maxIterations,
@@ -879,6 +899,47 @@ const SideDrawer = ({
           >
             <div className='flex h-full flex-col gap-6 overflow-y-auto overflow-x-hidden px-5 py-5 text-slate-900 dark:text-white'>
               <Section title='Render settings' defaultOpen>
+                <div className='space-y-2'>
+                  <LabelWithHelp
+                    label='Fractal'
+                    tooltip='Select the fractal set. Updates the URL so you can share the view.'
+                  />
+                  <div className='relative'>
+                    <select
+                      className='w-full appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+                      value={resolvedAlgorithm}
+                      onChange={(event) =>
+                        onChangeAlgorithm(
+                          event.target.value as FractalAlgorithm
+                        )
+                      }
+                    >
+                      {FRACTAL_OPTIONS.map((option) => (
+                        <option
+                          key={option.value}
+                          value={option.value}
+                          className='bg-white text-slate-900 dark:bg-slate-900 dark:text-white'
+                        >
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <svg
+                      className='pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-white/60'
+                      viewBox='0 0 24 24'
+                      fill='none'
+                    >
+                      <path
+                        d='M7 10l5 5 5-5'
+                        stroke='currentColor'
+                        strokeWidth='2'
+                        strokeLinecap='round'
+                        strokeLinejoin='round'
+                      />
+                    </svg>
+                  </div>
+                </div>
+
                 <div className='space-y-2'>
                   <div className='flex items-center justify-between'>
                     <LabelWithHelp

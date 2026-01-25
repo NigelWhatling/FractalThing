@@ -1,9 +1,21 @@
 import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
-import { BrowserRouter, Route, Routes, useLocation, useParams } from 'react-router-dom';
+import {
+  BrowserRouter,
+  Route,
+  Routes,
+  useLocation,
+  useNavigate,
+  useParams,
+} from 'react-router-dom';
 import FractalCanvas from './components/FractalCanvas';
 import InteractionModeToggle, { type InteractionMode } from './components/InteractionModeToggle';
 import SideDrawer from './components/SideDrawer';
 import { defaultSettings, settingsReducer } from './state/settings';
+import {
+  getDefaultView,
+  normaliseAlgorithm,
+  type FractalAlgorithm,
+} from './util/fractals';
 
 type WindowSize = {
   width: number;
@@ -11,6 +23,17 @@ type WindowSize = {
 };
 
 type ThemeMode = 'light' | 'dark';
+
+const formatNavValue = (value: number) => {
+  if (!Number.isFinite(value)) {
+    return '0';
+  }
+  const fixed = value.toFixed(10);
+  return fixed.replace(/\.?0+$/, '');
+};
+
+const buildLocFromNav = (nav: { x: number; y: number; z: number }) =>
+  `@${formatNavValue(nav.x)},${formatNavValue(nav.y)}x${formatNavValue(nav.z)}`;
 
 const useWindowSize = (): WindowSize => {
   const [size, setSize] = useState<WindowSize>({
@@ -43,8 +66,9 @@ const useWindowSize = (): WindowSize => {
 };
 
 const FractalRoute = () => {
-  const { loc } = useParams();
+  const { loc, algorithm } = useParams();
   const location = useLocation();
+  const navigate = useNavigate();
   const { width, height } = useWindowSize();
   const [settings, dispatchSettings] = useReducer(settingsReducer, defaultSettings);
   const [interactionMode, setInteractionMode] = useState<InteractionMode>('grab');
@@ -67,6 +91,10 @@ const FractalRoute = () => {
     }
     return undefined;
   }, [loc, location.search]);
+  const resolvedAlgorithm = useMemo(
+    () => normaliseAlgorithm(algorithm),
+    [algorithm]
+  );
   const [theme, setTheme] = useState<ThemeMode>(() => {
     if (typeof window === 'undefined') {
       return 'dark';
@@ -82,6 +110,23 @@ const FractalRoute = () => {
       dispatchSettings({ type: 'update', payload });
     },
     []
+  );
+
+  const handleAlgorithmChange = useCallback(
+    (nextAlgorithm: FractalAlgorithm) => {
+      const searchParams = new URLSearchParams(location.search);
+      searchParams.delete('loc');
+      searchParams.delete('x');
+      searchParams.delete('y');
+      searchParams.delete('z');
+      const defaultNav = getDefaultView(nextAlgorithm);
+      const locString = buildLocFromNav(defaultNav);
+      const nextPath = `/${nextAlgorithm}/${locString}`;
+      const nextSearch = searchParams.toString();
+      navigate(`${nextPath}${nextSearch ? `?${nextSearch}` : ''}`);
+      return;
+    },
+    [location.search, navigate]
   );
 
   useEffect(() => {
@@ -101,6 +146,8 @@ const FractalRoute = () => {
       <SideDrawer
         settings={settings}
         onUpdateSettings={updateSettings}
+        algorithm={resolvedAlgorithm}
+        onChangeAlgorithm={handleAlgorithmChange}
         theme={theme}
         onToggleTheme={() => setTheme((value) => (value === 'dark' ? 'light' : 'dark'))}
         loc={locParam}

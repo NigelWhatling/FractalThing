@@ -13,19 +13,57 @@ workerContext.addEventListener('message', (event: MessageEvent<WorkerRequestMess
           const realSeed = data.x0 + (data.px + px) * data.xScale;
           const imagSeed = data.y0 + (data.py + py) * data.yScale;
 
-          let realPart = 0;
-          let imagPart = 0;
+          let realPart = data.algorithm === 'julia' ? realSeed : 0;
+          let imagPart = data.algorithm === 'julia' ? imagSeed : 0;
+          const cReal = data.algorithm === 'julia' ? data.juliaCr : realSeed;
+          const cImag = data.algorithm === 'julia' ? data.juliaCi : imagSeed;
+
           let iteration = 0;
-          let realSquared = 0;
-          let imagSquared = 0;
-          let sumSquared = 0;
+          let realSquared = realPart * realPart;
+          let imagSquared = imagPart * imagPart;
 
           while (realSquared + imagSquared <= 4 && iteration < data.max) {
-            realPart = realSquared - imagSquared + realSeed;
-            imagPart = sumSquared - realSquared - imagSquared + imagSeed;
+            switch (data.algorithm) {
+              case 'burning-ship': {
+                const absReal = Math.abs(realPart);
+                const absImag = Math.abs(imagPart);
+                const absRealSq = absReal * absReal;
+                const absImagSq = absImag * absImag;
+                const nextReal = absRealSq - absImagSq + cReal;
+                const nextImag = 2 * absReal * absImag + cImag;
+                realPart = nextReal;
+                imagPart = nextImag;
+                break;
+              }
+              case 'tricorn': {
+                const nextReal = realSquared - imagSquared + cReal;
+                const nextImag = -2 * realPart * imagPart + cImag;
+                realPart = nextReal;
+                imagPart = nextImag;
+                break;
+              }
+              case 'multibrot-3': {
+                const realSq = realSquared;
+                const imagSq = imagSquared;
+                const nextReal = realSq * realPart - 3 * realPart * imagSq + cReal;
+                const nextImag = 3 * realSq * imagPart - imagSq * imagPart + cImag;
+                realPart = nextReal;
+                imagPart = nextImag;
+                break;
+              }
+              case 'julia':
+              case 'mandelbrot':
+              default: {
+                const nextReal = realSquared - imagSquared + cReal;
+                const nextImag = 2 * realPart * imagPart + cImag;
+                realPart = nextReal;
+                imagPart = nextImag;
+                break;
+              }
+            }
+
             realSquared = realPart * realPart;
             imagSquared = imagPart * imagPart;
-            sumSquared = (realPart + imagPart) * (realPart + imagPart);
             iteration += 1;
           }
 

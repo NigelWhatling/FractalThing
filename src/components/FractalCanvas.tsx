@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import PaletteGenerator from '../util/PaletteGenerator';
+import { DEFAULT_JULIA, getDefaultView, normaliseAlgorithm } from '../util/fractals';
 import InfoPanel from './InfoPanel';
 import { START, type WorkerResponseMessage, type WorkerStartMessage } from '../workers/WorkerCommands';
 import type { RenderSettings } from '../state/settings';
@@ -173,8 +174,8 @@ const buildBlockSteps = (stepsCount: number, finalBlockSize: number) => {
   return steps;
 };
 
-const parseNavFromLoc = (loc?: string): Navigation => {
-  const defaults = { x: -0.5, y: 0, z: 1 };
+const parseNavFromLoc = (loc?: string, fallback?: Navigation): Navigation => {
+  const defaults = fallback ?? { x: -0.5, y: 0, z: 1 };
   if (!loc) {
     return defaults;
   }
@@ -213,9 +214,13 @@ const FractalCanvas = ({
   const navigate = useNavigate();
   const location = useLocation();
   const { algorithm } = useParams();
-  const [nav, setNav] = useState<Navigation>(() => parseNavFromLoc(loc));
+  const resolvedAlgorithm = normaliseAlgorithm(algorithm);
+  const defaultNav = getDefaultView(resolvedAlgorithm);
+  const [nav, setNav] = useState<Navigation>(() => parseNavFromLoc(loc, defaultNav));
   const [isRendering, setIsRendering] = useState(false);
-  const [displayNav, setDisplayNav] = useState<Navigation>(() => parseNavFromLoc(loc));
+  const [displayNav, setDisplayNav] = useState<Navigation>(() =>
+    parseNavFromLoc(loc, defaultNav)
+  );
   const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(null);
   const workerCount = Math.max(1, Math.round(settings.workerCount || 1));
 
@@ -232,6 +237,7 @@ const FractalCanvas = ({
   const pendingDisplayNavRef = useRef<Navigation | null>(null);
   const displayNavRafRef = useRef<number | null>(null);
   const interactionModeRef = useRef<InteractionMode>(interactionMode);
+  const hasMountedRef = useRef(false);
   const selectionStateRef = useRef<SelectionState>({
     active: false,
     pointerId: null,
@@ -588,9 +594,42 @@ const FractalCanvas = ({
   }, [interactionMode]);
 
   useEffect(() => {
-    setNav(parseNavFromLoc(loc));
+    const nextNav = parseNavFromLoc(loc, getDefaultView(resolvedAlgorithm));
+    navRef.current = nextNav;
+    displayNavRef.current = nextNav;
+    setNav(nextNav);
+    setDisplayNav(nextNav);
     resetTilesRef.current = true;
-  }, [loc]);
+  }, [loc, resolvedAlgorithm]);
+
+  useEffect(() => {
+    if (!hasMountedRef.current) {
+      hasMountedRef.current = true;
+      return;
+    }
+    if (!loc) {
+      const nextNav = getDefaultView(resolvedAlgorithm);
+      navRef.current = nextNav;
+      displayNavRef.current = nextNav;
+      setNav(nextNav);
+      setDisplayNav(nextNav);
+      pendingDisplayNavRef.current = null;
+      if (displayNavRafRef.current !== null) {
+        window.cancelAnimationFrame(displayNavRafRef.current);
+        displayNavRafRef.current = null;
+      }
+      selectionStateRef.current = {
+        active: false,
+        pointerId: null,
+        startX: 0,
+        startY: 0,
+      };
+      selectionRectRef.current = null;
+      setSelectionRect(null);
+    }
+    resetTilesRef.current = true;
+    distributionBufferRef.current = null;
+  }, [resolvedAlgorithm, loc]);
 
   useEffect(() => {
     if (!settings.autoUpdateUrl) {
@@ -598,14 +637,14 @@ const FractalCanvas = ({
     }
     const locString = buildLocFromNav(nav);
     const searchParams = new URLSearchParams(location.search);
-    if (algorithm) {
+    if (resolvedAlgorithm) {
       if (searchParams.has('loc')) {
         searchParams.delete('loc');
       }
       searchParams.delete('x');
       searchParams.delete('y');
       searchParams.delete('z');
-      const nextPath = `/${algorithm}/${locString}`;
+      const nextPath = `/${resolvedAlgorithm}/${locString}`;
       const nextSearch = searchParams.toString();
       const nextUrl = `${nextPath}${nextSearch ? `?${nextSearch}` : ''}`;
       if (`${location.pathname}${location.search}` !== nextUrl) {
@@ -626,7 +665,7 @@ const FractalCanvas = ({
   }, [
     nav,
     settings.autoUpdateUrl,
-    algorithm,
+    resolvedAlgorithm,
     location.pathname,
     location.search,
     navigate,
@@ -636,7 +675,7 @@ const FractalCanvas = ({
     if (resetSignal === 0) {
       return;
     }
-    const defaultNav = parseNavFromLoc();
+    const defaultNav = getDefaultView(resolvedAlgorithm);
     navRef.current = defaultNav;
     displayNavRef.current = defaultNav;
     setNav(defaultNav);
@@ -670,7 +709,7 @@ const FractalCanvas = ({
       canvas.style.cursor = interactionMode === 'grab' ? 'grab' : 'crosshair';
     }
     resetTilesRef.current = true;
-  }, [resetSignal]);
+  }, [resetSignal, resolvedAlgorithm, interactionMode]);
 
   useEffect(() => {
     resetTilesRef.current = true;
@@ -736,12 +775,15 @@ const FractalCanvas = ({
         blockSize,
         max,
         smooth,
+        algorithm: resolvedAlgorithm,
+        juliaCr: DEFAULT_JULIA.real,
+        juliaCi: DEFAULT_JULIA.imag,
       };
       workersRef.current[workerIndex % workersRef.current.length].postMessage(message);
       workerIndex += 1;
     }
     workerIndexRef.current = workerIndex;
-  }, [blockSteps]);
+  }, [blockSteps, resolvedAlgorithm]);
 
   const scheduleAllTiles = useCallback((renderId: number) => {
     tileMapRef.current.forEach((tile) => {
@@ -1405,6 +1447,7 @@ const FractalCanvas = ({
     settings.smooth,
     settings.tileSize,
     settings.workerCount,
+    resolvedAlgorithm,
     width,
     x0,
     xScale,
