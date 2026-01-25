@@ -1,10 +1,12 @@
+import { DEFAULT_PALETTE_STOPS, type PaletteStop } from '../util/PaletteGenerator';
+
 export type RenderSettings = {
   tileSize: number;
   maxIterations: number;
   smooth: boolean;
   refinementStepsCount: number;
   finalBlockSize: number;
-  colourMode: 'normalize' | 'cycle' | 'fixed';
+  colourMode: 'normalize' | 'distribution' | 'cycle' | 'fixed';
   colourPeriod: number;
   autoMaxIterations: boolean;
   autoIterationsScale: number;
@@ -15,6 +17,7 @@ export type RenderSettings = {
   hueRotate: number;
   workerCount: number;
   autoUpdateUrl: boolean;
+  paletteStops: PaletteStop[];
 };
 
 const getDefaultWorkerCount = () => {
@@ -41,6 +44,7 @@ export const defaultSettings: RenderSettings = {
   hueRotate: 0,
   workerCount: getDefaultWorkerCount(),
   autoUpdateUrl: true,
+  paletteStops: DEFAULT_PALETTE_STOPS.map((stop) => ({ ...stop })),
 };
 
 export type SettingsAction = {

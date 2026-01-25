@@ -121,6 +121,33 @@ const hash2d = (x: number, y: number) => {
   return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
 };
 
+const shiftFloatBuffer = (
+  buffer: Float32Array,
+  dx: number,
+  dy: number,
+  width: number,
+  height: number
+) => {
+  const next = new Float32Array(buffer.length);
+  next.fill(Number.NaN);
+  for (let y = 0; y < height; y += 1) {
+    const ny = y + dy;
+    if (ny < 0 || ny >= height) {
+      continue;
+    }
+    const rowOffset = y * width;
+    const nextOffset = ny * width;
+    for (let x = 0; x < width; x += 1) {
+      const nx = x + dx;
+      if (nx < 0 || nx >= width) {
+        continue;
+      }
+      next[nextOffset + nx] = buffer[rowOffset + x];
+    }
+  }
+  return next;
+};
+
 const buildBlockSteps = (stepsCount: number, finalBlockSize: number) => {
   const clampedSteps = Math.max(2, Math.round(stepsCount));
   const clampedFinal = Math.min(BASE_BLOCK_SIZE, Math.max(1, Math.round(finalBlockSize)));
@@ -220,6 +247,8 @@ const FractalCanvas = ({
   const panShiftRef = useRef<{ dx: number; dy: number } | null>(null);
   const resetTilesRef = useRef(true);
   const tileSizeRef = useRef(settings.tileSize);
+  const distributionBufferRef = useRef<Float32Array | null>(null);
+  const distributionAppliedRef = useRef(false);
   const dragStateRef = useRef<DragState>({
     active: false,
     pointerId: null,
@@ -350,7 +379,106 @@ const FractalCanvas = ({
     setIsRendering(value);
   }, []);
 
-  const basePalette = useMemo(() => PaletteGenerator(MAX_PALETTE_ITERATIONS), []);
+  const applyDistributionColouring = useCallback(
+    (config: RenderConfig) => {
+      if (distributionAppliedRef.current) {
+        return;
+      }
+      const buffer = distributionBufferRef.current;
+      const ctx = contextRef.current;
+      if (!buffer || !ctx) {
+        return;
+      }
+      const maxIterations = config.max;
+      const bins = Math.max(1, Math.ceil(maxIterations));
+      const histogram = new Uint32Array(bins);
+      let total = 0;
+      for (let index = 0; index < buffer.length; index += 1) {
+        const value = buffer[index];
+        if (!Number.isFinite(value) || value >= maxIterations) {
+          continue;
+        }
+        const bin = Math.min(bins - 1, Math.floor(value));
+        histogram[bin] += 1;
+        total += 1;
+      }
+      if (total === 0) {
+        return;
+      }
+
+      distributionAppliedRef.current = true;
+
+      const cdf = new Float32Array(bins);
+      let cumulative = 0;
+      let cdfMin = 0;
+      for (let index = 0; index < bins; index += 1) {
+        cumulative += histogram[index];
+        if (cdfMin === 0 && cumulative > 0) {
+          cdfMin = cumulative / total;
+        }
+        cdf[index] = cumulative / total;
+      }
+      const denom = 1 - cdfMin;
+      if (denom > 0) {
+        for (let index = 0; index < cdf.length; index += 1) {
+          cdf[index] = Math.max(0, (cdf[index] - cdfMin) / denom);
+        }
+      }
+
+      const palette = config.palette;
+      const paletteSize = palette.length;
+      const smooth = config.smooth;
+      const hasDither = config.ditherStrength > 0;
+      const imageData = ctx.createImageData(width, height);
+      let idx = 0;
+
+      for (let y = 0; y < height; y += 1) {
+        const rowOffset = y * width;
+        for (let x = 0; x < width; x += 1) {
+          const value = buffer[rowOffset + x];
+          let rgb: number[] = [0, 0, 0];
+
+          if (Number.isFinite(value) && value < maxIterations) {
+            const base = Math.floor(value);
+            const frac = value - base;
+            const baseIndex = Math.min(cdf.length - 1, Math.max(0, base));
+            const nextIndex = Math.min(cdf.length - 1, baseIndex + 1);
+            const cdfValue =
+              cdf[baseIndex] + (cdf[nextIndex] - cdf[baseIndex]) * frac;
+            let scaled = cdfValue * (paletteSize - 1);
+            if (hasDither) {
+              scaled += (hash2d(x, y) - 0.5) * config.ditherStrength;
+            }
+            scaled = Math.min(paletteSize - 1, Math.max(0, scaled));
+
+            if (smooth) {
+              const paletteIndex = Math.min(
+                paletteSize - 2,
+                Math.max(0, Math.floor(scaled))
+              );
+              const t = scaled - paletteIndex;
+              rgb = lerpRgb(palette[paletteIndex], palette[paletteIndex + 1], t);
+            } else {
+              rgb = palette[Math.floor(scaled)];
+            }
+          }
+
+          imageData.data[idx++] = Math.floor(rgb[0]);
+          imageData.data[idx++] = Math.floor(rgb[1]);
+          imageData.data[idx++] = Math.floor(rgb[2]);
+          imageData.data[idx++] = 255;
+        }
+      }
+
+      ctx.putImageData(imageData, 0, 0);
+    },
+    [height, width]
+  );
+
+  const basePalette = useMemo(
+    () => PaletteGenerator(MAX_PALETTE_ITERATIONS, settings.paletteStops),
+    [settings.paletteStops]
+  );
   const smoothedPalette = useMemo(() => smoothPalette(basePalette), [basePalette]);
   const palette = useMemo(() => {
     const strength = Math.min(1, Math.max(0, settings.paletteSmoothness));
@@ -559,6 +687,7 @@ const FractalCanvas = ({
     settings.finalBlockSize,
     settings.filterMode,
     settings.maxIterations,
+    settings.paletteStops,
     settings.paletteSmoothness,
     settings.refinementStepsCount,
     settings.smooth,
@@ -633,12 +762,37 @@ const FractalCanvas = ({
       const { max, palette: activePalette, pscale, smooth, colourMode, ditherStrength } = config;
       let index = 0;
       const paletteSize = activePalette.length;
+      const finalBlockSize = blockSteps[blockSteps.length - 1] ?? 1;
       const isCycle = colourMode === 'cycle';
       const isFixed = colourMode === 'fixed';
+      const isDistribution = colourMode === 'distribution';
       const hasDither = ditherStrength > 0;
+      const distributionBuffer = isDistribution ? distributionBufferRef.current : null;
       for (let py = 0; py < response.height; py += response.blockSize) {
         for (let px = 0; px < response.width; px += response.blockSize) {
           const iterationValue = response.values[index++];
+          const drawWidth = Math.min(response.blockSize, response.width - px);
+          const drawHeight = Math.min(response.blockSize, response.height - py);
+
+          if (
+            distributionBuffer &&
+            response.blockSize === finalBlockSize &&
+            Number.isFinite(iterationValue)
+          ) {
+            const baseX = response.px + px;
+            const baseY = response.py + py;
+            if (response.blockSize === 1) {
+              const bufferIndex = baseY * width + baseX;
+              distributionBuffer[bufferIndex] = iterationValue;
+            } else {
+              for (let by = 0; by < drawHeight; by += 1) {
+                const rowOffset = (baseY + by) * width + baseX;
+                for (let bx = 0; bx < drawWidth; bx += 1) {
+                  distributionBuffer[rowOffset + bx] = iterationValue;
+                }
+              }
+            }
+          }
           let rgb: number[];
 
           if (smooth) {
@@ -680,8 +834,6 @@ const FractalCanvas = ({
           }
 
           ctx.fillStyle = `rgb(${Math.floor(rgb[0])},${Math.floor(rgb[1])},${Math.floor(rgb[2])})`;
-          const drawWidth = Math.min(response.blockSize, response.width - px);
-          const drawHeight = Math.min(response.blockSize, response.height - py);
           ctx.fillRect(response.px + px, response.py + py, drawWidth, drawHeight);
         }
       }
@@ -709,10 +861,13 @@ const FractalCanvas = ({
         );
         if (allComplete) {
           setRendering(false);
+          if (config.colourMode === 'distribution') {
+            applyDistributionColouring(config);
+          }
         }
       }
     },
-    [blockSteps.length, scheduleTileStep, setRendering]
+    [applyDistributionColouring, blockSteps, scheduleTileStep, setRendering, width]
   );
 
   useEffect(() => {
@@ -1088,6 +1243,30 @@ const FractalCanvas = ({
 
     const panShift = panShiftRef.current;
     panShiftRef.current = null;
+    const distributionActive = settings.colourMode === 'distribution';
+
+    if (distributionActive) {
+      if (
+        resetTilesRef.current ||
+        tileMapRef.current.size === 0 ||
+        !distributionBufferRef.current ||
+        distributionBufferRef.current.length !== width * height
+      ) {
+        const buffer = new Float32Array(width * height);
+        buffer.fill(Number.NaN);
+        distributionBufferRef.current = buffer;
+      } else if (panShift) {
+        distributionBufferRef.current = shiftFloatBuffer(
+          distributionBufferRef.current,
+          panShift.dx,
+          panShift.dy,
+          width,
+          height
+        );
+      }
+    } else {
+      distributionBufferRef.current = null;
+    }
 
     if (resetTilesRef.current || tileMapRef.current.size === 0) {
       const tiles = new Map<number, Tile>();
@@ -1176,10 +1355,11 @@ const FractalCanvas = ({
 
     const renderId = renderIdRef.current + 1;
     renderIdRef.current = renderId;
+    distributionAppliedRef.current = false;
 
     const smooth = settings.smooth;
     const pscale =
-      settings.colourMode === 'normalize'
+      settings.colourMode === 'normalize' || settings.colourMode === 'distribution'
         ? (palette.length - 1) / effectiveMaxIterations
         : settings.colourMode === 'cycle'
           ? (palette.length - 1) / Math.max(1, settings.colourPeriod)

@@ -1,4 +1,89 @@
-const PaletteGenerator = (size: number): number[][] => {
+export type PaletteStop = {
+  position: number;
+  colour: string;
+};
+
+export const DEFAULT_PALETTE_STOPS: PaletteStop[] = [
+  { position: 0, colour: '#000764' },
+  { position: 0.16, colour: '#206BCB' },
+  { position: 0.42, colour: '#EDFFFF' },
+  { position: 0.6425, colour: '#FFAA00' },
+  { position: 0.8575, colour: '#000200' },
+  { position: 1, colour: '#000064' },
+];
+
+const parseHexColour = (value: string): [number, number, number] | null => {
+  if (!value) {
+    return null;
+  }
+  const hex = value.trim().replace('#', '');
+  if (hex.length === 3) {
+    const expanded = hex
+      .split('')
+      .map((char) => char + char)
+      .join('');
+    const int = Number.parseInt(expanded, 16);
+    if (Number.isNaN(int)) {
+      return null;
+    }
+    return [(int >> 16) & 255, (int >> 8) & 255, int & 255];
+  }
+  if (hex.length !== 6) {
+    return null;
+  }
+  const int = Number.parseInt(hex, 16);
+  if (Number.isNaN(int)) {
+    return null;
+  }
+  return [(int >> 16) & 255, (int >> 8) & 255, int & 255];
+};
+
+const clamp = (value: number, min: number, max: number) =>
+  Math.min(max, Math.max(min, value));
+
+const normaliseStops = (stops: PaletteStop[]): { position: number; rgb: number[] }[] => {
+  const parsed = stops
+    .map((stop) => {
+      const position = clamp(Number(stop.position), 0, 1);
+      const rgb = parseHexColour(stop.colour);
+      if (!rgb) {
+        return null;
+      }
+      return { position, rgb };
+    })
+    .filter((stop): stop is { position: number; rgb: number[] } => Boolean(stop));
+
+  if (parsed.length < 2) {
+    return normaliseStops(DEFAULT_PALETTE_STOPS);
+  }
+
+  parsed.sort((a, b) => a.position - b.position);
+
+  const unique: { position: number; rgb: number[] }[] = [];
+  const epsilon = 0.0001;
+  parsed.forEach((stop) => {
+    const last = unique[unique.length - 1];
+    if (last && Math.abs(stop.position - last.position) <= epsilon) {
+      unique[unique.length - 1] = stop;
+    } else {
+      unique.push(stop);
+    }
+  });
+
+  if (unique[0]?.position > 0) {
+    unique.unshift({ position: 0, rgb: unique[0].rgb });
+  }
+  if (unique[unique.length - 1]?.position < 1) {
+    unique.push({ position: 1, rgb: unique[unique.length - 1].rgb });
+  }
+
+  return unique;
+};
+
+const PaletteGenerator = (
+  size: number,
+  stops: PaletteStop[] = DEFAULT_PALETTE_STOPS
+): number[][] => {
   const createInterpolant = (xs: number[], ys: number[]) => {
     let length = xs.length;
 
@@ -92,18 +177,15 @@ const PaletteGenerator = (size: number): number[][] => {
     };
   };
 
-  const interpolantR = createInterpolant(
-    [0.0, 0.16, 0.42, 0.6425, 0.8575, 1.0],
-    [0, 32, 237, 255, 0, 0]
-  );
-  const interpolantG = createInterpolant(
-    [0.0, 0.16, 0.42, 0.6425, 0.8575, 1.0],
-    [7, 107, 255, 170, 2, 0]
-  );
-  const interpolantB = createInterpolant(
-    [0.0, 0.16, 0.42, 0.6425, 0.8575, 1.0],
-    [100, 203, 255, 0, 0, 100]
-  );
+  const resolvedStops = normaliseStops(stops);
+  const xs = resolvedStops.map((stop) => stop.position);
+  const rs = resolvedStops.map((stop) => stop.rgb[0]);
+  const gs = resolvedStops.map((stop) => stop.rgb[1]);
+  const bs = resolvedStops.map((stop) => stop.rgb[2]);
+
+  const interpolantR = createInterpolant(xs, rs);
+  const interpolantG = createInterpolant(xs, gs);
+  const interpolantB = createInterpolant(xs, bs);
 
   const palette: number[][] = [];
   for (let index = 0; index <= size; index += 1) {

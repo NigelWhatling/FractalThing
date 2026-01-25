@@ -103,6 +103,7 @@ const FractalRoute = () => {
         onUpdateSettings={updateSettings}
         theme={theme}
         onToggleTheme={() => setTheme((value) => (value === 'dark' ? 'light' : 'dark'))}
+        loc={locParam}
       />
       <InteractionModeToggle
         value={interactionMode}
