@@ -7,10 +7,7 @@ import {
   type MouseEvent,
 } from 'react';
 import { HexColorPicker } from 'react-colorful';
-import PaletteGenerator, {
-  DEFAULT_PALETTE_STOPS,
-  type PaletteStop,
-} from '../util/PaletteGenerator';
+import PaletteGenerator, { type PaletteStop } from '../util/PaletteGenerator';
 import {
   DEFAULT_JULIA,
   FRACTAL_OPTIONS,
@@ -18,6 +15,7 @@ import {
   normaliseAlgorithm,
   type FractalAlgorithm,
 } from '../util/fractals';
+import { BUILTIN_PALETTES, type PalettePreset } from '../util/palettes';
 import { START } from '../workers/WorkerCommands';
 import type { RenderSettings } from '../state/settings';
 
@@ -30,6 +28,8 @@ type SideDrawerProps = {
   onToggleTheme: () => void;
   loc?: string;
 };
+
+const PALETTE_STORAGE_KEY = 'fractal:palettes';
 
 const refinementOptions = [
   { label: 'Slow', steps: 7 },
@@ -150,12 +150,31 @@ const SideDrawer = ({
   const [paletteStopsDraft, setPaletteStopsDraft] = useState<PaletteStop[]>(
     settings.paletteStops,
   );
-  const [paletteJson, setPaletteJson] = useState('');
-  const [paletteError, setPaletteError] = useState('');
+  const [paletteNameDraft, setPaletteNameDraft] = useState('');
   const [paletteModalOpen, setPaletteModalOpen] = useState(false);
   const [selectedStopIndex, setSelectedStopIndex] = useState<number | null>(
     null,
   );
+  const [customPalettes, setCustomPalettes] = useState<PalettePreset[]>(() => {
+    if (typeof window === 'undefined') {
+      return [];
+    }
+    try {
+      const stored = window.localStorage.getItem(PALETTE_STORAGE_KEY);
+      if (!stored) {
+        return [];
+      }
+      const parsed = JSON.parse(stored) as PalettePreset[];
+      if (!Array.isArray(parsed)) {
+        return [];
+      }
+      return parsed.filter((preset) => preset && Array.isArray(preset.stops));
+    } catch {
+      return [];
+    }
+  });
+  const [activePresetId, setActivePresetId] = useState<string>('current');
+  const [editingPaletteId, setEditingPaletteId] = useState<string | null>(null);
   const paletteDragIndexRef = useRef<number | null>(null);
   const palettePendingRef = useRef<{ index: number; startX: number } | null>(
     null,
@@ -172,8 +191,48 @@ const SideDrawer = ({
   const previewRenderIdRef = useRef(0);
 
   const resolvedAlgorithm = useMemo(() => normaliseAlgorithm(algorithm), [algorithm]);
+  const [previewNavState, setPreviewNavState] = useState(() =>
+    parseNavFromLoc(loc, getDefaultView(resolvedAlgorithm)),
+  );
 
-  const parseNavFromLoc = (value?: string, fallback?: { x: number; y: number; z: number }) => {
+  const palettePresets = useMemo(
+    () => [...BUILTIN_PALETTES, ...customPalettes],
+    [customPalettes],
+  );
+  const isBuiltinPalette = useMemo(
+    () => new Set(BUILTIN_PALETTES.map((palette) => palette.id)),
+    [],
+  );
+
+  const baselinePaletteStops = useMemo(() => {
+    if (!editingPaletteId || editingPaletteId === 'current') {
+      return settings.paletteStops;
+    }
+    const preset = palettePresets.find((option) => option.id === editingPaletteId);
+    return preset?.stops ?? settings.paletteStops;
+  }, [editingPaletteId, palettePresets, settings.paletteStops]);
+  const baselinePaletteName = useMemo(() => {
+    if (!editingPaletteId || editingPaletteId === 'current') {
+      return '';
+    }
+    const preset = palettePresets.find((option) => option.id === editingPaletteId);
+    return preset?.name ?? '';
+  }, [editingPaletteId, palettePresets]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem(
+      PALETTE_STORAGE_KEY,
+      JSON.stringify(customPalettes),
+    );
+  }, [customPalettes]);
+
+  function parseNavFromLoc(
+    value?: string,
+    fallback?: { x: number; y: number; z: number },
+  ) {
     const defaults = fallback ?? { x: -0.5, y: 0, z: 1 };
     if (!value) {
       return defaults;
@@ -192,12 +251,14 @@ const SideDrawer = ({
       y: Number.isFinite(y) ? y : defaults.y,
       z: Number.isFinite(z) ? z : defaults.z,
     };
-  };
+  }
 
-  const previewNav = useMemo(
-    () => parseNavFromLoc(loc, getDefaultView(resolvedAlgorithm)),
-    [loc, resolvedAlgorithm]
-  );
+  useEffect(() => {
+    if (!paletteModalOpen) {
+      return;
+    }
+    setPreviewNavState(parseNavFromLoc(loc, getDefaultView(resolvedAlgorithm)));
+  }, [paletteModalOpen, loc, resolvedAlgorithm]);
 
   const workerMax = useMemo(
     () =>
@@ -272,17 +333,62 @@ const SideDrawer = ({
     });
   }, [paletteStopsDraft, settings.paletteStops]);
 
+  const stopsEqual = (a: PaletteStop[], b: PaletteStop[]) => {
+    if (a.length !== b.length) {
+      return false;
+    }
+    return a.every(
+      (stop, index) =>
+        stop.position === b[index]?.position && stop.colour === b[index]?.colour,
+    );
+  };
+
+  const paletteDraftDirty = useMemo(
+    () =>
+      !stopsEqual(paletteStopsDraft, baselinePaletteStops) ||
+      paletteNameDraft.trim() !== baselinePaletteName,
+    [paletteStopsDraft, baselinePaletteStops, paletteNameDraft, baselinePaletteName],
+  );
+  const paletteNameValid = paletteNameDraft.trim().length > 0;
+  const isPaletteNameTaken = (name: string, excludeId?: string | null) => {
+    const candidate = name.trim().toLowerCase();
+    if (!candidate) {
+      return false;
+    }
+    return palettePresets.some((preset) => {
+      if (excludeId && preset.id === excludeId) {
+        return false;
+      }
+      return preset.name.trim().toLowerCase() === candidate;
+    });
+  };
+  const saveRequiresName =
+    !editingPaletteId ||
+    editingPaletteId === 'current' ||
+    isBuiltinPalette.has(editingPaletteId) ||
+    !customPalettes.some((item) => item.id === editingPaletteId);
+  const saveDisabled =
+    !paletteDraftDirty || (!saveRequiresName && !paletteNameValid);
+
+  useEffect(() => {
+    const match = palettePresets.find((preset) =>
+      stopsEqual(preset.stops, settings.paletteStops),
+    );
+    setActivePresetId(match?.id ?? 'current');
+  }, [palettePresets, settings.paletteStops]);
+
   const applyPaletteStops = () => {
     onUpdateSettings({ paletteStops: paletteStopsDraft });
-    setPaletteError('');
     setPaletteModalOpen(false);
+    setActivePresetId('current');
   };
 
   const closePaletteModal = () => {
     setPaletteStopsDraft(settings.paletteStops);
-    setPaletteError('');
+    setPaletteNameDraft('');
     setPaletteModalOpen(false);
     setSelectedStopIndex(null);
+    setEditingPaletteId(null);
   };
 
   useEffect(() => {
@@ -291,7 +397,6 @@ const SideDrawer = ({
       palettePendingRef.current = null;
       return;
     }
-    setPaletteJson(JSON.stringify(paletteStopsDraft, null, 2));
     const sorted = paletteStopsDraft
       .map((stop, index) => ({ position: stop.position, index }))
       .sort((a, b) => a.position - b.position);
@@ -338,14 +443,6 @@ const SideDrawer = ({
     });
   };
 
-  const handleAddStop = () => {
-    updatePaletteStops((currentStops) => {
-      const nextStops = [...currentStops, { position: 0.5, colour: '#ffffff' }];
-      setSelectedStopIndex(nextStops.length - 1);
-      return nextStops;
-    });
-  };
-
   const handleRemoveStop = (index: number) => {
     updatePaletteStops((currentStops) => {
       if (currentStops.length <= 2) {
@@ -389,38 +486,144 @@ const SideDrawer = ({
   };
 
   const handleResetPalette = () => {
-    updatePaletteStops(DEFAULT_PALETTE_STOPS.map((stop) => ({ ...stop })));
-    setPaletteJson('');
-    setPaletteError('');
+    updatePaletteStops(
+      baselinePaletteStops.map((stop) => ({ ...stop })),
+    );
+    setSelectedStopIndex(
+      baselinePaletteStops.length > 0 ? 0 : null,
+    );
+    setPaletteNameDraft(baselinePaletteName);
   };
 
-  const parsePaletteJson = (value: string) => {
-    try {
-      const parsed = JSON.parse(value);
-      if (!Array.isArray(parsed) || parsed.length < 2) {
-        throw new Error('Palette JSON must be an array with at least 2 stops.');
-      }
-      const nextStops: PaletteStop[] = parsed.map((stop) => {
-        if (!stop || typeof stop !== 'object') {
-          throw new Error(
-            'Each stop must be an object with position and colour.',
-          );
-        }
-        const position = Number(stop.position);
-        const colour = String(stop.colour);
-        if (!Number.isFinite(position) || !colour) {
-          throw new Error('Each stop must include a position and colour.');
-        }
-        return { position, colour };
-      });
-      updatePaletteStops(nextStops);
-      setPaletteError('');
-    } catch (error) {
-      setPaletteError(
-        error instanceof Error
-          ? error.message
-          : 'Could not parse palette JSON.',
-      );
+  const handlePresetChange = (value: string) => {
+    if (value === 'current') {
+      setActivePresetId('current');
+      return;
+    }
+    const preset = palettePresets.find((option) => option.id === value);
+    if (!preset) {
+      return;
+    }
+    onUpdateSettings({
+      paletteStops: preset.stops.map((stop) => ({ ...stop })),
+    });
+    setActivePresetId(preset.id);
+  };
+
+  const handleSavePaletteAs = () => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    const initialName = paletteNameDraft.trim() || 'New palette';
+    const promptValue = window.prompt('Palette name', initialName);
+    const name = promptValue?.trim() ?? '';
+    if (!name) {
+      return;
+    }
+    if (isPaletteNameTaken(name)) {
+      window.alert('A palette with that name already exists.');
+      return;
+    }
+    const slug = name
+      .trim()
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, '-')
+      .replace(/^-+|-+$/g, '');
+    const id = `custom-${slug || 'palette'}-${Date.now()}`;
+    const nextPreset: PalettePreset = {
+      id,
+      name: name.trim(),
+      stops: paletteStopsDraft.map((stop) => ({ ...stop })),
+    };
+    setCustomPalettes((current) => [...current, nextPreset]);
+    setEditingPaletteId(id);
+    setPaletteNameDraft(name);
+  };
+
+  const handleSavePalette = () => {
+    if (
+      !editingPaletteId ||
+      editingPaletteId === 'current' ||
+      isBuiltinPalette.has(editingPaletteId)
+    ) {
+      handleSavePaletteAs();
+      return;
+    }
+    const customIndex = customPalettes.findIndex(
+      (item) => item.id === editingPaletteId,
+    );
+    if (customIndex === -1) {
+      handleSavePaletteAs();
+      return;
+    }
+    const currentName = customPalettes[customIndex]?.name ?? '';
+    const nextName = paletteNameDraft.trim() || currentName;
+    if (
+      nextName &&
+      isPaletteNameTaken(nextName, editingPaletteId)
+    ) {
+      window.alert('A palette with that name already exists.');
+      return;
+    }
+    setCustomPalettes((current) =>
+      current.map((item) =>
+        item.id === editingPaletteId
+          ? {
+              ...item,
+              name: nextName,
+              stops: paletteStopsDraft.map((stop) => ({ ...stop })),
+            }
+          : item,
+      ),
+    );
+    setPaletteNameDraft(nextName);
+  };
+
+  const handleNewPalette = () => {
+    const blank: PaletteStop[] = [
+      { position: 0, colour: '#000000' },
+      { position: 1, colour: '#ffffff' },
+    ];
+    updatePaletteStops(blank.map((stop) => ({ ...stop })));
+    setSelectedStopIndex(blank.length > 0 ? 0 : null);
+    setEditingPaletteId(null);
+    setPaletteNameDraft('');
+  };
+
+  const handleRandomPalette = () => {
+    const stopsCount = 4 + Math.floor(Math.random() * 3);
+    const positions = Array.from({ length: stopsCount }, (_, index) => {
+      if (index === 0) return 0;
+      if (index === stopsCount - 1) return 1;
+      return Math.random();
+    }).sort((a, b) => a - b);
+    const randomStops: PaletteStop[] = positions.map((position) => {
+      const colour = `#${Math.floor(Math.random() * 0xffffff)
+        .toString(16)
+        .padStart(6, '0')}`;
+      return { position, colour };
+    });
+    updatePaletteStops(randomStops);
+    setSelectedStopIndex(0);
+    setEditingPaletteId(null);
+    if (!paletteNameDraft.trim()) {
+      setPaletteNameDraft('Random palette');
+    }
+  };
+
+  const handleDeletePalette = (paletteId: string) => {
+    const preset = customPalettes.find((item) => item.id === paletteId);
+    if (!preset || typeof window === 'undefined') {
+      return;
+    }
+    if (!window.confirm(`Delete "${preset.name}"?`)) {
+      return;
+    }
+    setCustomPalettes((current) =>
+      current.filter((item) => item.id !== paletteId),
+    );
+    if (editingPaletteId === paletteId) {
+      setEditingPaletteId(null);
     }
   };
 
@@ -438,12 +641,18 @@ const SideDrawer = ({
     return paletteStopsDraft[selectedStopIndex] ?? null;
   }, [paletteStopsDraft, selectedStopIndex]);
 
-  const paletteGradient = useMemo(() => {
-    const stops = sortedStops
+  const getPaletteGradient = (stops: PaletteStop[]) => {
+    const sorted = [...stops].sort((a, b) => a.position - b.position);
+    const gradientStops = sorted
       .map((stop) => `${stop.colour} ${Math.round(stop.position * 100)}%`)
       .join(', ');
-    return `linear-gradient(90deg, ${stops})`;
-  }, [sortedStops]);
+    return `linear-gradient(90deg, ${gradientStops})`;
+  };
+
+  const paletteGradient = useMemo(
+    () => getPaletteGradient(sortedStops),
+    [sortedStops],
+  );
 
   const previewPalette = useMemo(() => {
     const basePalette = PaletteGenerator(2048, paletteStopsDraft);
@@ -536,17 +745,18 @@ const SideDrawer = ({
     const previewWidth = 320;
     const previewHeight = 320;
     const ratio = previewWidth / previewHeight;
-    const xMin = previewNav.x - ratio / previewNav.z;
-    const xMax = previewNav.x + ratio / previewNav.z;
-    const yMin = previewNav.y - 1 / previewNav.z;
-    const yMax = previewNav.y + 1 / previewNav.z;
+    const xMin = previewNavState.x - ratio / previewNavState.z;
+    const xMax = previewNavState.x + ratio / previewNavState.z;
+    const yMin = previewNavState.y - 1 / previewNavState.z;
+    const yMax = previewNavState.y + 1 / previewNavState.z;
     const xScale = Math.abs(xMax - xMin) / previewWidth;
     const yScale = Math.abs(yMax - yMin) / previewHeight;
     const maxIterations = settings.autoMaxIterations
       ? Math.max(
           settings.maxIterations,
           settings.maxIterations +
-            settings.autoIterationsScale * Math.log2(Math.max(1, previewNav.z)),
+            settings.autoIterationsScale *
+              Math.log2(Math.max(1, previewNavState.z)),
         )
       : settings.maxIterations;
 
@@ -604,9 +814,9 @@ const SideDrawer = ({
     };
   }, [
     paletteModalOpen,
-    previewNav.x,
-    previewNav.y,
-    previewNav.z,
+    previewNavState.x,
+    previewNavState.y,
+    previewNavState.z,
     resolvedAlgorithm,
     settings.autoIterationsScale,
     settings.autoMaxIterations,
@@ -827,6 +1037,33 @@ const SideDrawer = ({
     });
   };
 
+  const handleEditPalette = (preset: PalettePreset) => {
+    updatePaletteStops(preset.stops.map((stop) => ({ ...stop })));
+    setSelectedStopIndex(preset.stops.length > 0 ? 0 : null);
+    setEditingPaletteId(preset.id);
+    setPaletteNameDraft(preset.name);
+  };
+
+  const applyPreviewZoom = (
+    event: MouseEvent<HTMLDivElement>,
+    zoomIn: boolean,
+  ) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = rect.width / rect.height;
+    const u = (event.clientX - rect.left) / rect.width;
+    const v = (event.clientY - rect.top) / rect.height;
+    const xMin = previewNavState.x - ratio / previewNavState.z;
+    const xMax = previewNavState.x + ratio / previewNavState.z;
+    const yMin = previewNavState.y - 1 / previewNavState.z;
+    const yMax = previewNavState.y + 1 / previewNavState.z;
+    const nextX = xMin + (xMax - xMin) * u;
+    const nextY = yMin + (yMax - yMin) * v;
+    const nextZ = zoomIn
+      ? previewNavState.z * 2
+      : Math.max(1, previewNavState.z / 2);
+    setPreviewNavState({ x: nextX, y: nextY, z: nextZ });
+  };
+
   useEffect(() => {
     if (!open) {
       return;
@@ -1023,6 +1260,69 @@ const SideDrawer = ({
                   </div>
                 </div>
 
+                <div className='space-y-3'>
+                  <LabelWithHelp
+                    label='Palette'
+                    tooltip='Switch between saved palettes. Palettes are stored locally in this browser.'
+                  />
+                  <div className='relative'>
+                    <select
+                      className='w-full appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+                      value={activePresetId}
+                      onChange={(event) => handlePresetChange(event.target.value)}
+                    >
+                      <option
+                        value='current'
+                        className='bg-white text-slate-900 dark:bg-slate-900 dark:text-white'
+                      >
+                        Current
+                      </option>
+                      {palettePresets.map((option) => (
+                        <option
+                          key={option.id}
+                          value={option.id}
+                          className='bg-white text-slate-900 dark:bg-slate-900 dark:text-white'
+                        >
+                          {option.name}
+                        </option>
+                      ))}
+                    </select>
+                    <svg
+                      className='pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-white/60'
+                      viewBox='0 0 24 24'
+                      fill='none'
+                    >
+                      <path
+                        d='M7 10l5 5 5-5'
+                        stroke='currentColor'
+                        strokeWidth='2'
+                        strokeLinecap='round'
+                        strokeLinejoin='round'
+                      />
+                    </svg>
+                  </div>
+                  <div
+                    className='h-3 w-full rounded-full border border-slate-200/70 bg-slate-200 dark:border-white/10 dark:bg-white/5'
+                    style={{ backgroundImage: paletteGradient }}
+                  />
+                  <button
+                    type='button'
+                    className='rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
+                    onClick={() => {
+                      setPaletteStopsDraft(settings.paletteStops);
+                      setSelectedStopIndex(settings.paletteStops.length > 0 ? 0 : null);
+                      setEditingPaletteId(activePresetId);
+                      const activePreset = palettePresets.find(
+                        (preset) => preset.id === activePresetId,
+                      );
+                      setPaletteNameDraft(activePreset?.name ?? '');
+                      setPaletteModalOpen(true);
+                    }}
+                  >
+                    Palette Editor
+                  </button>
+                </div>
+
                 <div className='space-y-2'>
                   <LabelWithHelp
                     label='Filters'
@@ -1110,34 +1410,6 @@ const SideDrawer = ({
                       onUpdateSettings({ hueRotate: nextValue });
                     }}
                   />
-                </div>
-
-                <div className='space-y-3'>
-                  <LabelWithHelp
-                    label='Palette editor'
-                    tooltip='Adjust colour stops for the gradient palette.'
-                  />
-                  <div
-                    className='h-3 w-full rounded-full border border-slate-200/70 bg-slate-200 dark:border-white/10 dark:bg-white/5'
-                    style={{ backgroundImage: paletteGradient }}
-                  />
-                  <button
-                    type='button'
-                    className='rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
-                    onClick={() => {
-                      setPaletteStopsDraft(settings.paletteStops);
-                      setPaletteJson(
-                        JSON.stringify(settings.paletteStops, null, 2),
-                      );
-                      setPaletteError('');
-                      setSelectedStopIndex(
-                        settings.paletteStops.length > 0 ? 0 : null,
-                      );
-                      setPaletteModalOpen(true);
-                    }}
-                  >
-                    Edit palette
-                  </button>
                 </div>
 
                 {settings.filterMode === 'gaussianSoft' && (
@@ -1528,10 +1800,10 @@ const SideDrawer = ({
 
                 <div className='rounded-xl border border-slate-200/70 bg-white/60 px-4 py-4 dark:border-white/10 dark:bg-white/5'>
                   <div className='text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-white/60'>
-                    Selected stop
+                    Edit stop
                   </div>
                   {selectedStop ? (
-                    <div className='mt-4 space-y-4'>
+                    <div className='mt-4 flex flex-wrap items-start gap-4'>
                       <HexColorPicker
                         color={selectedStop.colour}
                         onChange={(value) =>
@@ -1540,29 +1812,33 @@ const SideDrawer = ({
                           })
                         }
                       />
-                      <div className='flex items-center gap-3'>
-                        <label className='text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-white/50'>
-                          Position
-                        </label>
-                        <input
-                          type='number'
-                          min={0}
-                          max={1}
-                          step={0.01}
-                          value={selectedStop.position}
-                          className='w-24 rounded-lg border border-slate-200/70 bg-white px-2 py-1 text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/80'
-                          onChange={(event) =>
-                            handlePaletteStopChange(selectedStopIndex ?? 0, {
-                              position: Math.min(
-                                1,
-                                Math.max(0, Number(event.target.value)),
-                              ),
-                            })
-                          }
-                        />
+                      <div className='flex min-w-[160px] flex-1 flex-col gap-3'>
+                        <div className='flex items-center gap-2'>
+                          <label className='text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-white/50'>
+                            Position
+                          </label>
+                          <input
+                            type='number'
+                            min={0}
+                            max={100}
+                            step={0.1}
+                            value={Math.round(selectedStop.position * 1000) / 10}
+                            className='w-20 rounded-lg border border-slate-200/70 bg-white px-2 py-1 text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/80'
+                            onChange={(event) => {
+                              const nextValue = Number(event.target.value);
+                              const clamped = Math.min(100, Math.max(0, nextValue));
+                              handlePaletteStopChange(selectedStopIndex ?? 0, {
+                                position: clamped / 100,
+                              });
+                            }}
+                          />
+                          <span className='text-xs text-slate-500 dark:text-white/50'>
+                            %
+                          </span>
+                        </div>
                         <button
                           type='button'
-                          className='text-xs text-slate-500 transition hover:text-slate-900 disabled:opacity-40 dark:text-white/40 dark:hover:text-white'
+                          className='self-start rounded-md border border-slate-200/70 bg-white px-2 py-1 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:opacity-40 dark:border-white/10 dark:bg-white/5 dark:text-white/70 dark:hover:bg-white/10'
                           onClick={() =>
                             selectedStopIndex !== null
                               ? handleRemoveStop(selectedStopIndex)
@@ -1581,45 +1857,122 @@ const SideDrawer = ({
                   )}
                 </div>
 
+                <div className='space-y-2'>
+                  <label className='text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-white/60'>
+                    Palette name
+                  </label>
+                  <input
+                    type='text'
+                    value={paletteNameDraft}
+                    onChange={(event) => setPaletteNameDraft(event.target.value)}
+                    placeholder='Custom palette'
+                    className='w-full rounded-lg border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90'
+                  />
+                </div>
+
                 <div className='flex flex-wrap gap-2'>
                   <button
                     type='button'
-                    className='rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
-                    onClick={handleAddStop}
+                    className='rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
+                    onClick={handleSavePalette}
+                    disabled={saveDisabled}
                   >
-                    + Stop
+                    Save palette
                   </button>
                   <button
                     type='button'
                     className='rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
+                    onClick={handleSavePaletteAs}
+                  >
+                    Save palette as...
+                  </button>
+                  <button
+                    type='button'
+                    className='rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
+                    onClick={handleNewPalette}
+                  >
+                    New palette
+                  </button>
+                  <button
+                    type='button'
+                    className='rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
+                    onClick={handleRandomPalette}
+                  >
+                    Random palette
+                  </button>
+                  <button
+                    type='button'
+                    className='rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
                     onClick={handleResetPalette}
+                    disabled={!paletteDraftDirty}
                   >
                     Reset
                   </button>
                 </div>
-
+                <div className='border-t border-slate-200/70 pt-4 dark:border-white/10' />
                 <div className='space-y-2'>
                   <LabelWithHelp
-                    label='Palette JSON'
-                    tooltip='Edit the JSON to load a palette, or copy it to export.'
+                    label='Stored palettes'
+                    tooltip='Manage saved palettes stored in this browser.'
                   />
-                  <textarea
-                    className='w-full resize-y rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-[11px] text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/80'
-                    rows={6}
-                    value={paletteJson}
-                    onChange={(event) => {
-                      const nextValue = event.target.value;
-                      setPaletteJson(nextValue);
-                      parsePaletteJson(nextValue);
-                    }}
-                    placeholder='[{"position":0,"colour":"#000764"}, ...]'
-                  />
-                  {paletteError && (
-                    <div className='text-[11px] text-amber-600 dark:text-amber-200'>
-                      {paletteError}
-                    </div>
-                  )}
+                  <div className='max-h-48 space-y-2 overflow-y-auto pr-1'>
+                    {palettePresets.map((preset) => {
+                      const isCustom = customPalettes.some(
+                        (item) => item.id === preset.id,
+                      );
+                      const isEditing = editingPaletteId === preset.id;
+                      return (
+                        <div
+                          key={preset.id}
+                          className={`flex items-center gap-3 rounded-xl border px-3 py-2 ${
+                            isEditing
+                              ? 'border-cyan-400/60 bg-cyan-50/50 dark:border-cyan-300/40 dark:bg-cyan-300/10'
+                              : 'border-slate-200/70 bg-white/70 dark:border-white/10 dark:bg-white/5'
+                          }`}
+                        >
+                          <div
+                            className='h-5 w-28 shrink-0 rounded-lg border border-slate-200/70 bg-slate-200 dark:border-white/10 dark:bg-white/5'
+                            style={{ backgroundImage: getPaletteGradient(preset.stops) }}
+                          />
+                          <div className='flex min-w-0 flex-1 items-center justify-between gap-2'>
+                            <div className='flex min-w-0 items-center gap-2'>
+                              {!isCustom && (
+                                <span
+                                  className='text-xs text-slate-400 dark:text-white/40'
+                                  title='Built-in palette'
+                                  aria-label='Built-in palette'
+                                >
+                                  🔒
+                                </span>
+                              )}
+                              <div className='truncate text-xs font-semibold text-slate-700 dark:text-white/90'>
+                                {preset.name}
+                              </div>
+                            </div>
+                            <div className='flex gap-2 text-[11px]'>
+                              <button
+                                type='button'
+                                className='rounded-md border border-slate-200/70 bg-white px-2 py-1 font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-white/70 dark:hover:bg-white/10'
+                                onClick={() => handleEditPalette(preset)}
+                              >
+                                Edit
+                              </button>
+                              <button
+                                type='button'
+                                className='rounded-md border border-slate-200/70 bg-white px-2 py-1 font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:opacity-40 dark:border-white/10 dark:bg-white/5 dark:text-white/70 dark:hover:bg-white/10'
+                                onClick={() => handleDeletePalette(preset.id)}
+                                disabled={!isCustom}
+                              >
+                                Delete
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
                 </div>
+
                 <div className='flex flex-wrap justify-end gap-2 border-t border-slate-200/70 pt-4 dark:border-white/10'>
                   <button
                     type='button'
@@ -1644,7 +1997,14 @@ const SideDrawer = ({
                   Preview
                 </div>
                 <div className='overflow-hidden rounded-2xl border border-slate-200/70 bg-slate-100 dark:border-white/10 dark:bg-white/5'>
-                  <div className='relative w-full pb-[100%]'>
+                  <div
+                    className='relative w-full pb-[100%] cursor-zoom-in'
+                    onClick={(event) => applyPreviewZoom(event, true)}
+                    onContextMenu={(event) => {
+                      event.preventDefault();
+                      applyPreviewZoom(event, false);
+                    }}
+                  >
                     <canvas
                       ref={previewCanvasRef}
                       className='absolute inset-0 h-full w-full object-cover'
