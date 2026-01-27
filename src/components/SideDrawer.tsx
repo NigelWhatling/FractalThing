@@ -2106,21 +2106,21 @@ const SideDrawer = ({
                   </button>
                 </div>
               </Section>
-              <div className='flex items-center justify-between border-t border-slate-200/70 pt-3 text-[10px] text-slate-500 dark:border-white/10 dark:text-white/40'>
+              <div className='border-t border-slate-200/70 pt-3 text-[10px] text-slate-500 dark:border-white/10 dark:text-white/40'>
                 <div>
                   <div className='font-semibold uppercase tracking-[0.18em]'>
                     Version {versionLabel}
                   </div>
                   <div className='mt-1 uppercase tracking-[0.16em]'>Built {buildLabel}</div>
+                  <a
+                    href='https://github.com/NigelWhatling/FractalThing'
+                    target='_blank'
+                    rel='noreferrer'
+                    className='mt-2 inline-flex text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-500 transition hover:text-slate-700 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 dark:text-white/40 dark:hover:text-white/70'
+                  >
+                    View on GitHub
+                  </a>
                 </div>
-                <a
-                  href='https://github.com/NigelWhatling/FractalThing'
-                  target='_blank'
-                  rel='noreferrer'
-                  className='touch-manipulation rounded-lg border border-slate-200/70 bg-white px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5 dark:text-white/60 dark:hover:bg-white/10'
-                >
-                  GitHub
-                </a>
               </div>
             </div>
           </div>
