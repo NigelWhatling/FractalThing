@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState, type KeyboardEvent as ReactKeyboardEvent } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import PaletteGenerator from '../util/PaletteGenerator';
 import { DEFAULT_JULIA, getDefaultView, normaliseAlgorithm } from '../util/fractals';
@@ -22,6 +22,7 @@ type FractalCanvasProps = {
   settings: RenderSettings;
   interactionMode: InteractionMode;
   resetSignal?: number;
+  uiOverlayOpen?: boolean;
 };
 
 type RenderConfig = {
@@ -389,6 +390,7 @@ const FractalCanvas = ({
   settings,
   interactionMode,
   resetSignal = 0,
+  uiOverlayOpen = false,
 }: FractalCanvasProps) => {
   const navigate = useNavigate();
   const location = useLocation();
@@ -413,6 +415,8 @@ const FractalCanvas = ({
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const glCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const contextRef = useRef<CanvasRenderingContext2D | null>(null);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const uiOverlayOpenRef = useRef(uiOverlayOpen);
   const glRef = useRef<WebGLRenderingContext | null>(null);
   const glProgramRef = useRef<WebGLProgram | null>(null);
   const glLimbProgramsRef = useRef<Map<LimbProfileId, WebGLProgram>>(new Map());
@@ -2249,6 +2253,87 @@ const FractalCanvas = ({
     };
   }, [computeSelectionRect, queueDisplayNavUpdate, queueSelectionRectUpdate, useGpuCanvas]);
 
+  const handleCanvasKeyDown = useCallback(
+    (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      const key = event.key;
+      const currentNav = navRef.current;
+      const panPixels = event.shiftKey ? 80 : 40;
+      const { xScale: pxScaleX, yScale: pxScaleY } = boundsRef.current;
+      let nextNav = currentNav;
+      let handled = true;
+
+      switch (key) {
+        case 'ArrowUp':
+          nextNav = { ...currentNav, y: currentNav.y - panPixels * pxScaleY };
+          break;
+        case 'ArrowDown':
+          nextNav = { ...currentNav, y: currentNav.y + panPixels * pxScaleY };
+          break;
+        case 'ArrowLeft':
+          nextNav = { ...currentNav, x: currentNav.x - panPixels * pxScaleX };
+          break;
+        case 'ArrowRight':
+          nextNav = { ...currentNav, x: currentNav.x + panPixels * pxScaleX };
+          break;
+        case '+':
+        case '=':
+          nextNav = { ...currentNav, z: currentNav.z * 2 };
+          break;
+        case '-':
+        case '_':
+          nextNav = { ...currentNav, z: Math.max(1, currentNav.z / 2) };
+          break;
+        default:
+          handled = false;
+      }
+
+      if (!handled) {
+        return;
+      }
+
+      event.preventDefault();
+      resetTilesRef.current = true;
+      displayNavRef.current = nextNav;
+      setDisplayNav(nextNav);
+      setNav(nextNav);
+    },
+    [setNav, setDisplayNav],
+  );
+
+  useEffect(() => {
+    uiOverlayOpenRef.current = uiOverlayOpen;
+  }, [uiOverlayOpen]);
+
+  const requestCanvasFocus = useCallback(() => {
+    if (uiOverlayOpenRef.current) {
+      return;
+    }
+    const container = containerRef.current;
+    if (!container) {
+      return;
+    }
+    container.focus({ preventScroll: true });
+  }, []);
+
+  const handleCanvasBlur = useCallback(() => {
+    if (uiOverlayOpenRef.current) {
+      return;
+    }
+    window.requestAnimationFrame(() => {
+      requestCanvasFocus();
+    });
+  }, [requestCanvasFocus]);
+
+  useEffect(() => {
+    if (uiOverlayOpen) {
+      return;
+    }
+    const raf = window.requestAnimationFrame(() => {
+      requestCanvasFocus();
+    });
+    return () => window.cancelAnimationFrame(raf);
+  }, [uiOverlayOpen, requestCanvasFocus]);
+
   useEffect(() => {
     if (settings.renderBackend === 'gpu') {
       setRendering(false);
@@ -2444,13 +2529,29 @@ const FractalCanvas = ({
   ]);
 
   return (
-    <div style={{ width, height }} className="relative bg-black">
+    <div
+      style={{ width, height }}
+      className="relative bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50"
+      role="region"
+      aria-label="Fractal canvas"
+      aria-describedby="canvas-help"
+      aria-busy={isRendering}
+      tabIndex={0}
+      ref={containerRef}
+      onKeyDown={handleCanvasKeyDown}
+      onBlur={handleCanvasBlur}
+    >
+      <span id="canvas-help" className="sr-only">
+        Drag to pan. Scroll or click to zoom. Use arrow keys to pan and plus or minus to zoom.
+      </span>
       <canvas
         ref={canvasRef}
         width={width}
         height={height}
         style={{ filter: canvasFilter }}
         className={`absolute inset-0 touch-none bg-black ${useGpuCanvas ? 'hidden' : ''}`}
+        aria-hidden={useGpuCanvas}
+        tabIndex={-1}
       />
       <canvas
         ref={glCanvasRef}
@@ -2458,6 +2559,8 @@ const FractalCanvas = ({
         height={height}
         style={{ filter: canvasFilter }}
         className={`absolute inset-0 touch-none bg-black ${useGpuCanvas ? '' : 'hidden'}`}
+        aria-hidden={!useGpuCanvas}
+        tabIndex={-1}
       />
       {selectionRect && (
         <div
@@ -2468,6 +2571,7 @@ const FractalCanvas = ({
             width: selectionRect.width,
             height: selectionRect.height,
           }}
+          aria-hidden
         />
       )}
       <InfoPanel

@@ -135,6 +135,7 @@ const FractalRoute = () => {
   );
   const [interactionMode, setInteractionMode] = useState<InteractionMode>('grab');
   const [resetSignal, setResetSignal] = useState(0);
+  const [uiOverlayOpen, setUiOverlayOpen] = useState(false);
   const locParam = useMemo(() => {
     if (loc) {
       return loc;
@@ -213,35 +214,55 @@ const FractalRoute = () => {
   }, [settings]);
 
   return (
-    <div className="relative h-screen w-screen overflow-hidden bg-gradient-to-br from-slate-50 via-slate-100 to-slate-200 text-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 dark:text-slate-100">
-      <div
-        className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(56,189,248,0.15),transparent_45%),radial-gradient(circle_at_85%_80%,rgba(14,165,233,0.12),transparent_50%)] dark:opacity-80"
-        aria-hidden
-      />
-      <SideDrawer
-        settings={settings}
-        onUpdateSettings={updateSettings}
-        onResetSettings={handleResetSettings}
-        algorithm={resolvedAlgorithm}
-        onChangeAlgorithm={handleAlgorithmChange}
-        theme={theme}
-        onToggleTheme={() => setTheme((value) => (value === 'dark' ? 'light' : 'dark'))}
-        loc={locParam}
-      />
-      <InteractionModeToggle
-        value={interactionMode}
-        onChange={setInteractionMode}
-        onReset={() => setResetSignal((value) => value + 1)}
-      />
-      <FractalCanvas
-        loc={locParam}
-        width={width}
-        height={height}
-        settings={settings}
-        interactionMode={interactionMode}
-        resetSignal={resetSignal}
-      />
-    </div>
+    <>
+      <a
+        href="#main"
+        className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:left-4 focus-visible:top-4 focus-visible:z-[60] focus-visible:rounded-full focus-visible:bg-white focus-visible:px-4 focus-visible:py-2 focus-visible:text-sm focus-visible:font-semibold focus-visible:text-slate-900 focus-visible:shadow-lg dark:focus-visible:bg-slate-900 dark:focus-visible:text-white"
+      >
+        Skip to content
+      </a>
+      <main
+        id="main"
+        tabIndex={-1}
+        className="relative h-screen w-screen overflow-hidden bg-gradient-to-br from-slate-50 via-slate-100 to-slate-200 text-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 dark:text-slate-100"
+        style={{
+          paddingTop: 'env(safe-area-inset-top)',
+          paddingRight: 'env(safe-area-inset-right)',
+          paddingBottom: 'env(safe-area-inset-bottom)',
+          paddingLeft: 'env(safe-area-inset-left)',
+        }}
+      >
+        <div
+          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(56,189,248,0.15),transparent_45%),radial-gradient(circle_at_85%_80%,rgba(14,165,233,0.12),transparent_50%)] dark:opacity-80"
+          aria-hidden
+        />
+        <SideDrawer
+          settings={settings}
+          onUpdateSettings={updateSettings}
+          onResetSettings={handleResetSettings}
+          algorithm={resolvedAlgorithm}
+          onChangeAlgorithm={handleAlgorithmChange}
+          theme={theme}
+          onToggleTheme={() => setTheme((value) => (value === 'dark' ? 'light' : 'dark'))}
+          onOverlayChange={setUiOverlayOpen}
+          loc={locParam}
+        />
+        <InteractionModeToggle
+          value={interactionMode}
+          onChange={setInteractionMode}
+          onReset={() => setResetSignal((value) => value + 1)}
+        />
+        <FractalCanvas
+          loc={locParam}
+          width={width}
+          height={height}
+          settings={settings}
+          interactionMode={interactionMode}
+          resetSignal={resetSignal}
+          uiOverlayOpen={uiOverlayOpen}
+        />
+      </main>
+    </>
   );
 };
 

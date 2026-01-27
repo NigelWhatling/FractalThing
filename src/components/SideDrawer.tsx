@@ -5,6 +5,7 @@ import {
   useState,
   type ReactNode,
   type MouseEvent,
+  type KeyboardEvent as ReactKeyboardEvent,
 } from 'react';
 import { HexColorPicker } from 'react-colorful';
 import PaletteGenerator, { type PaletteStop } from '../util/PaletteGenerator';
@@ -27,6 +28,7 @@ type SideDrawerProps = {
   onChangeAlgorithm: (algorithm: FractalAlgorithm) => void;
   theme: 'light' | 'dark';
   onToggleTheme: () => void;
+  onOverlayChange?: (open: boolean) => void;
   loc?: string;
 };
 
@@ -78,12 +80,14 @@ type LabelWithHelpProps = {
   label: string;
   tooltip: string;
   variant?: 'subtitle' | 'body' | 'caption';
+  htmlFor?: string;
 };
 
 const LabelWithHelp = ({
   label,
   tooltip,
   variant = 'subtitle',
+  htmlFor,
 }: LabelWithHelpProps) => {
   const textClass =
     variant === 'caption'
@@ -93,7 +97,13 @@ const LabelWithHelp = ({
         : 'text-[11px] uppercase tracking-[0.14em] text-slate-600 dark:text-white/60';
   return (
     <div className='flex items-center gap-2'>
-      <span className={textClass}>{label}</span>
+      {htmlFor ? (
+        <label htmlFor={htmlFor} className={textClass}>
+          {label}
+        </label>
+      ) : (
+        <span className={textClass}>{label}</span>
+      )}
       <span
         className='cursor-help text-xs text-slate-400 dark:text-white/40'
         role='img'
@@ -119,9 +129,14 @@ const Section = ({
     className='group border-b border-slate-200/70 pb-6 dark:border-white/10'
     open={defaultOpen}
   >
-    <summary className='flex cursor-pointer items-center justify-between py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-600 dark:text-white/70 [&::-webkit-details-marker]:hidden'>
-      <span>{title}</span>
-      <span className='transition-transform group-open:rotate-180'>▾</span>
+    <summary className='flex cursor-pointer touch-manipulation items-center justify-between rounded-lg py-2 text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 dark:text-white/70 [&::-webkit-details-marker]:hidden'>
+      <span className='text-balance'>{title}</span>
+      <span
+        className='transition-transform motion-reduce:transition-none group-open:rotate-180'
+        aria-hidden='true'
+      >
+        ▾
+      </span>
     </summary>
     <div className='space-y-4 pt-2'>{children}</div>
   </details>
@@ -135,6 +150,7 @@ const SideDrawer = ({
   onChangeAlgorithm,
   theme,
   onToggleTheme,
+  onOverlayChange,
   loc,
 }: SideDrawerProps) => {
   const [open, setOpen] = useState(false);
@@ -197,6 +213,7 @@ const SideDrawer = ({
     null,
   );
   const paletteBarRef = useRef<HTMLDivElement | null>(null);
+  const paletteModalRef = useRef<HTMLDivElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const [previewData, setPreviewData] = useState<{
     values: Float32Array;
@@ -206,6 +223,7 @@ const SideDrawer = ({
     smooth: boolean;
   } | null>(null);
   const previewRenderIdRef = useRef(0);
+  const previewAspectRatio = 1;
 
   const resolvedAlgorithm = useMemo(() => normaliseAlgorithm(algorithm), [algorithm]);
   const [previewNavState, setPreviewNavState] = useState(() =>
@@ -1072,17 +1090,90 @@ const SideDrawer = ({
     };
   }, [paletteModalOpen]);
 
-  const handlePaletteBarClick = (event: MouseEvent<HTMLDivElement>) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const ratio = (event.clientX - rect.left) / rect.width;
-    const position = Math.min(1, Math.max(0, ratio));
-    const colour = getColourAtPosition(position);
+  useEffect(() => {
+    onOverlayChange?.(open || paletteModalOpen);
+  }, [open, paletteModalOpen, onOverlayChange]);
+
+  const getPaletteModalFocusables = (container: HTMLElement | null) => {
+    if (!container) {
+      return [];
+    }
+    const focusableSelector =
+      'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
+    return Array.from(container.querySelectorAll<HTMLElement>(focusableSelector)).filter(
+      (element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true',
+    );
+  };
+
+  useEffect(() => {
+    if (!paletteModalOpen) {
+      return;
+    }
+    const container = paletteModalRef.current;
+    if (!container) {
+      return;
+    }
+    const focusables = getPaletteModalFocusables(container);
+    window.requestAnimationFrame(() => {
+      if (focusables.length > 0) {
+        focusables[0].focus();
+      } else {
+        container.focus();
+      }
+    });
+  }, [paletteModalOpen]);
+
+  const handlePaletteModalKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Tab') {
+      return;
+    }
+    const focusables = getPaletteModalFocusables(paletteModalRef.current);
+    if (focusables.length === 0) {
+      return;
+    }
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+    const active = document.activeElement;
+    if (event.shiftKey) {
+      if (active === first || active === paletteModalRef.current) {
+        event.preventDefault();
+        last.focus();
+      }
+      return;
+    }
+    if (active === last) {
+      event.preventDefault();
+      first.focus();
+    }
+  };
+
+  const addPaletteStopAt = (position: number) => {
+    const clamped = Math.min(1, Math.max(0, position));
+    const colour = getColourAtPosition(clamped);
     updatePaletteStops((currentStops) => {
       const nextIndex = currentStops.length;
-      const nextStops = [...currentStops, { position, colour }];
+      const nextStops = [...currentStops, { position: clamped, colour }];
       setSelectedStopIndex(nextIndex);
       return nextStops;
     });
+  };
+
+  const handlePaletteBarClick = (event: MouseEvent<HTMLDivElement>) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const ratio = (event.clientX - rect.left) / rect.width;
+    addPaletteStopAt(ratio);
+  };
+
+  const handlePaletteBarKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+    if (event.key !== 'Enter' && event.key !== ' ') {
+      return;
+    }
+    event.preventDefault();
+    const selectedPosition =
+      selectedStopIndex !== null
+        ? paletteStopsDraft[selectedStopIndex]?.position
+        : undefined;
+    addPaletteStopAt(selectedPosition ?? 0.5);
   };
 
   const handleEditPalette = (preset: PalettePreset) => {
@@ -1092,24 +1183,25 @@ const SideDrawer = ({
     setPaletteNameDraft(preset.name);
   };
 
-  const applyPreviewZoom = (
-    event: MouseEvent<HTMLDivElement>,
-    zoomIn: boolean,
-  ) => {
-    const rect = event.currentTarget.getBoundingClientRect();
-    const ratio = rect.width / rect.height;
-    const u = (event.clientX - rect.left) / rect.width;
-    const v = (event.clientY - rect.top) / rect.height;
+  const applyPreviewZoomAt = (u: number, v: number, zoomIn: boolean) => {
+    const ratio = previewAspectRatio;
     const xMin = previewNavState.x - ratio / previewNavState.z;
     const xMax = previewNavState.x + ratio / previewNavState.z;
     const yMin = previewNavState.y - 1 / previewNavState.z;
     const yMax = previewNavState.y + 1 / previewNavState.z;
-    const nextX = xMin + (xMax - xMin) * u;
-    const nextY = yMin + (yMax - yMin) * v;
+    const nextX = xMin + (xMax - xMin) * Math.min(1, Math.max(0, u));
+    const nextY = yMin + (yMax - yMin) * Math.min(1, Math.max(0, v));
     const nextZ = zoomIn
       ? previewNavState.z * 2
       : Math.max(1, previewNavState.z / 2);
     setPreviewNavState({ x: nextX, y: nextY, z: nextZ });
+  };
+
+  const applyPreviewZoom = (event: MouseEvent<HTMLDivElement>, zoomIn: boolean) => {
+    const rect = event.currentTarget.getBoundingClientRect();
+    const u = (event.clientX - rect.left) / rect.width;
+    const v = (event.clientY - rect.top) / rect.height;
+    applyPreviewZoomAt(u, v, zoomIn);
   };
 
   useEffect(() => {
@@ -1149,7 +1241,9 @@ const SideDrawer = ({
         <button
           type='button'
           aria-label='Open controls'
-          className='fixed left-4 top-4 z-50 flex h-10 w-10 items-center justify-center rounded-xl border border-slate-200/70 bg-white/70 text-lg text-slate-700 shadow-[0_10px_24px_rgba(15,23,42,0.12)] backdrop-blur-xl transition hover:border-slate-300 hover:text-slate-900 dark:border-white/10 dark:bg-slate-900/70 dark:text-white/80 dark:shadow-[0_10px_24px_rgba(0,0,0,0.5)] dark:hover:border-white/30 dark:hover:text-white'
+          aria-controls='control-drawer'
+          aria-expanded={open}
+          className='fixed left-4 top-4 z-50 flex h-10 w-10 touch-manipulation items-center justify-center rounded-xl border border-slate-200/70 bg-white/70 text-lg text-slate-700 shadow-[0_10px_24px_rgba(15,23,42,0.12)] backdrop-blur-xl transition hover:border-slate-300 hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-slate-900/70 dark:text-white/80 dark:shadow-[0_10px_24px_rgba(0,0,0,0.5)] dark:hover:border-white/30 dark:hover:text-white'
           onClick={() => setOpen(true)}
         >
           ☰
@@ -1158,18 +1252,21 @@ const SideDrawer = ({
 
       {open && (
         <aside
+          id='control-drawer'
           className='fixed bottom-10 left-4 top-4 z-50 w-[340px] max-w-[92vw]'
           style={{ width: 340, maxWidth: '92vw' }}
           ref={drawerRef}
+          aria-label='Controls'
         >
           <button
             type='button'
             aria-label='Close controls'
-            className='absolute right-[-44px] top-4 inline-flex h-9 w-9 items-center justify-center rounded-xl border border-slate-200/70 bg-white/80 text-slate-600 transition hover:bg-white hover:text-slate-900 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10 dark:hover:text-white'
+            aria-controls='control-drawer'
+            className='absolute right-[-44px] top-4 inline-flex h-9 w-9 touch-manipulation items-center justify-center rounded-xl border border-slate-200/70 bg-white/80 text-slate-600 transition hover:bg-white hover:text-slate-900 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10 dark:hover:text-white'
             onClick={() => setOpen(false)}
             title='Close'
           >
-            <svg className='h-5 w-5' viewBox='0 0 24 24' fill='none'>
+            <svg className='h-5 w-5' viewBox='0 0 24 24' fill='none' aria-hidden='true'>
               <path
                 d='M18 6L6 18M6 6l12 12'
                 stroke='currentColor'
@@ -1182,16 +1279,20 @@ const SideDrawer = ({
             className='relative h-full overflow-hidden rounded-2xl border border-slate-200/70 bg-white/80 shadow-[0_20px_60px_rgba(15,23,42,0.15)] dark:border-white/10 dark:bg-slate-900/70 dark:shadow-[0_20px_60px_rgba(0,0,0,0.55)]'
             style={{ contain: 'paint' }}
           >
-            <div className='flex h-full flex-col gap-6 overflow-y-auto overflow-x-hidden px-5 py-5 text-slate-900 dark:text-white'>
-              <Section title='Render settings' defaultOpen>
+            <div className='flex h-full flex-col gap-6 overflow-y-auto overflow-x-hidden overscroll-contain px-5 py-5 text-slate-900 dark:text-white'>
+              <Section title='Render Settings' defaultOpen>
                 <div className='space-y-2'>
                   <LabelWithHelp
                     label='Fractal'
                     tooltip='Select the fractal set. Updates the URL so you can share the view.'
+                    htmlFor='fractal-select'
                   />
                   <div className='relative'>
                     <select
-                      className='w-full appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+                      className='w-full touch-manipulation appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+                      id='fractal-select'
+                      name='fractal'
+                      aria-label='Fractal'
                       value={resolvedAlgorithm}
                       onChange={(event) =>
                         onChangeAlgorithm(
@@ -1213,6 +1314,7 @@ const SideDrawer = ({
                       className='pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-white/60'
                       viewBox='0 0 24 24'
                       fill='none'
+                      aria-hidden='true'
                     >
                       <path
                         d='M7 10l5 5 5-5'
@@ -1239,6 +1341,7 @@ const SideDrawer = ({
                           : 'Escape-iteration cap. Higher values reveal more detail but render slower.'
                       }
                       variant='body'
+                      htmlFor='iterations-range'
                     />
                     <span className='rounded-lg border border-slate-200/70 bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 dark:border-white/10 dark:bg-white/10 dark:text-white/90'>
                       {iterationsDraft}
@@ -1250,7 +1353,12 @@ const SideDrawer = ({
                     max={2048}
                     step={32}
                     value={iterationsDraft}
-                    className='w-full accent-cyan-400 dark:accent-cyan-300'
+                    className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+                    id='iterations-range'
+                    name='iterations'
+                    aria-label={
+                      settings.autoMaxIterations ? 'Base iterations' : 'Max iterations'
+                    }
                     onChange={(event) => {
                       const nextValue = Math.max(
                         32,
@@ -1270,10 +1378,14 @@ const SideDrawer = ({
                   <LabelWithHelp
                     label='Colour mode'
                     tooltip='How iterations map to the palette: Normalise scales with max, Distribution equalises, Cycle repeats, Fixed uses 2048.'
+                    htmlFor='colour-mode-select'
                   />
                   <div className='relative'>
                     <select
-                      className='w-full appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+                      className='w-full touch-manipulation appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+                      id='colour-mode-select'
+                      name='colour-mode'
+                      aria-label='Colour mode'
                       value={settings.colourMode}
                       onChange={(event) =>
                         onUpdateSettings({
@@ -1296,6 +1408,7 @@ const SideDrawer = ({
                       className='pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-white/60'
                       viewBox='0 0 24 24'
                       fill='none'
+                      aria-hidden='true'
                     >
                       <path
                         d='M7 10l5 5 5-5'
@@ -1312,10 +1425,14 @@ const SideDrawer = ({
                   <LabelWithHelp
                     label='Palette'
                     tooltip='Switch between saved palettes. Palettes are stored locally in this browser.'
+                    htmlFor='palette-select'
                   />
                   <div className='relative'>
                     <select
-                      className='w-full appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+                      className='w-full touch-manipulation appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+                      id='palette-select'
+                      name='palette'
+                      aria-label='Palette'
                       value={activePresetId}
                       onChange={(event) => handlePresetChange(event.target.value)}
                     >
@@ -1339,6 +1456,7 @@ const SideDrawer = ({
                       className='pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-white/60'
                       viewBox='0 0 24 24'
                       fill='none'
+                      aria-hidden='true'
                     >
                       <path
                         d='M7 10l5 5 5-5'
@@ -1355,7 +1473,10 @@ const SideDrawer = ({
                   />
                   <button
                     type='button'
-                    className='rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
+                    aria-haspopup='dialog'
+                    aria-controls='palette-editor-modal'
+                    aria-expanded={paletteModalOpen}
+                    className='touch-manipulation rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
                     onClick={() => {
                       setPaletteStopsDraft(settings.paletteStops);
                       setSelectedStopIndex(settings.paletteStops.length > 0 ? 0 : null);
@@ -1375,10 +1496,14 @@ const SideDrawer = ({
                   <LabelWithHelp
                     label='Filters'
                     tooltip='Post-processing effects applied to the canvas.'
+                    htmlFor='filter-select'
                   />
                   <div className='relative'>
                     <select
-                      className='w-full appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+                      className='w-full touch-manipulation appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+                      id='filter-select'
+                      name='filter-mode'
+                      aria-label='Filters'
                       value={settings.filterMode}
                       onChange={(event) =>
                         onUpdateSettings({
@@ -1401,6 +1526,7 @@ const SideDrawer = ({
                       className='pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-white/60'
                       viewBox='0 0 24 24'
                       fill='none'
+                      aria-hidden='true'
                     >
                       <path
                         d='M7 10l5 5 5-5'
@@ -1417,6 +1543,7 @@ const SideDrawer = ({
                   <LabelWithHelp
                     label='Colour blend'
                     tooltip='Blends neighbouring palette colours to soften banding without blurring detail.'
+                    htmlFor='colour-blend-range'
                   />
                   <input
                     type='range'
@@ -1424,7 +1551,10 @@ const SideDrawer = ({
                     max={1}
                     step={0.05}
                     value={paletteSmoothnessDraft}
-                    className='w-full accent-cyan-400 dark:accent-cyan-300'
+                    className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+                    id='colour-blend-range'
+                    name='colour-blend'
+                    aria-label='Colour blend'
                     onChange={(event) => {
                       const nextValue = Number(event.target.value);
                       setPaletteSmoothnessDraft(nextValue);
@@ -1440,6 +1570,7 @@ const SideDrawer = ({
                     <LabelWithHelp
                       label='Hue shift'
                       tooltip='Rotates the hue of the final image.'
+                      htmlFor='hue-shift-range'
                     />
                     <span className='rounded-lg border border-slate-200/70 bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 dark:border-white/10 dark:bg-white/10 dark:text-white/90'>
                       {hueRotateDraft}
@@ -1451,7 +1582,10 @@ const SideDrawer = ({
                     max={180}
                     step={5}
                     value={hueRotateDraft}
-                    className='w-full accent-cyan-400 dark:accent-cyan-300'
+                    className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+                    id='hue-shift-range'
+                    name='hue-shift'
+                    aria-label='Hue shift'
                     onChange={(event) => {
                       const nextValue = Math.round(Number(event.target.value));
                       setHueRotateDraft(nextValue);
@@ -1465,6 +1599,7 @@ const SideDrawer = ({
                     <LabelWithHelp
                       label='Gaussian blur strength'
                       tooltip='Applies a subtle blur in pixels. Lower values keep more detail.'
+                      htmlFor='gaussian-blur-range'
                     />
                     <input
                       type='range'
@@ -1472,7 +1607,10 @@ const SideDrawer = ({
                       max={2}
                       step={0.1}
                       value={gaussianBlurDraft}
-                      className='w-full accent-cyan-400 dark:accent-cyan-300'
+                      className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+                      id='gaussian-blur-range'
+                      name='gaussian-blur'
+                      aria-label='Gaussian blur strength'
                       onChange={(event) => {
                         const nextValue = Number(event.target.value);
                         setGaussianBlurDraft(nextValue);
@@ -1489,6 +1627,7 @@ const SideDrawer = ({
                     <LabelWithHelp
                       label='Dither strength'
                       tooltip='Adds tiny colour variation to reduce flat banding without blurring detail.'
+                      htmlFor='dither-strength-range'
                     />
                     <input
                       type='range'
@@ -1496,7 +1635,10 @@ const SideDrawer = ({
                       max={1}
                       step={0.05}
                       value={ditherStrengthDraft}
-                      className='w-full accent-cyan-400 dark:accent-cyan-300'
+                      className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+                      id='dither-strength-range'
+                      name='dither-strength'
+                      aria-label='Dither strength'
                       onChange={(event) => {
                         const nextValue = Number(event.target.value);
                         setDitherStrengthDraft(nextValue);
@@ -1513,6 +1655,7 @@ const SideDrawer = ({
                     <LabelWithHelp
                       label='Colour period'
                       tooltip='Number of iterations per full palette cycle. Lower values repeat colours more often.'
+                      htmlFor='colour-period-range'
                     />
                     <input
                       type='range'
@@ -1520,7 +1663,10 @@ const SideDrawer = ({
                       max={2048}
                       step={64}
                       value={colourPeriodDraft}
-                      className='w-full accent-cyan-400 dark:accent-cyan-300'
+                      className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+                      id='colour-period-range'
+                      name='colour-period'
+                      aria-label='Colour period'
                       onChange={(event) => {
                         const nextValue = Math.round(
                           Number(event.target.value),
@@ -1535,62 +1681,68 @@ const SideDrawer = ({
                 )}
 
                 <div className='space-y-3'>
-                  <div className='flex items-center justify-between rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-3 dark:border-white/10 dark:bg-white/5'>
+                  <button
+                    type='button'
+                    role='switch'
+                    aria-checked={settings.smooth}
+                    aria-label='Smooth colouring'
+                    className='flex w-full touch-manipulation items-center justify-between rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5'
+                    onClick={() => onUpdateSettings({ smooth: !settings.smooth })}
+                  >
                     <LabelWithHelp
                       label='Smooth colouring'
                       tooltip='Interpolates between iteration bands for smoother gradients.'
                       variant='body'
                     />
-                    <button
-                      type='button'
-                      role='switch'
-                      aria-checked={settings.smooth}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full border border-slate-200/70 transition dark:border-white/10 ${
+                    <span
+                      aria-hidden
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full border border-slate-200/70 transition motion-reduce:transition-none dark:border-white/10 ${
                         settings.smooth
                           ? 'bg-cyan-500/25 dark:bg-cyan-400/30'
                           : 'bg-slate-300/70 dark:bg-white/15'
                       }`}
-                      onClick={() =>
-                        onUpdateSettings({ smooth: !settings.smooth })
-                      }
                     >
                       <span
-                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition motion-reduce:transition-none ${
                           settings.smooth ? 'translate-x-5' : 'translate-x-0.5'
                         }`}
                       />
-                    </button>
-                  </div>
-                  <div className='flex items-center justify-between rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-3 dark:border-white/10 dark:bg-white/5'>
+                    </span>
+                  </button>
+                  <button
+                    type='button'
+                    role='switch'
+                    aria-checked={settings.autoMaxIterations}
+                    aria-label='Auto max iterations'
+                    className='flex w-full touch-manipulation items-center justify-between rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5'
+                    onClick={() =>
+                      onUpdateSettings({
+                        autoMaxIterations: !settings.autoMaxIterations,
+                      })
+                    }
+                  >
                     <LabelWithHelp
                       label='Auto max iterations'
                       tooltip='Increase max iterations as you zoom in (log2 scale).'
                       variant='body'
                     />
-                    <button
-                      type='button'
-                      role='switch'
-                      aria-checked={settings.autoMaxIterations}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full border border-slate-200/70 transition dark:border-white/10 ${
+                    <span
+                      aria-hidden
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full border border-slate-200/70 transition motion-reduce:transition-none dark:border-white/10 ${
                         settings.autoMaxIterations
                           ? 'bg-cyan-500/25 dark:bg-cyan-400/30'
                           : 'bg-slate-300/70 dark:bg-white/15'
                       }`}
-                      onClick={() =>
-                        onUpdateSettings({
-                          autoMaxIterations: !settings.autoMaxIterations,
-                        })
-                      }
                     >
                       <span
-                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition motion-reduce:transition-none ${
                           settings.autoMaxIterations
                             ? 'translate-x-5'
                             : 'translate-x-0.5'
                         }`}
                       />
-                    </button>
-                  </div>
+                    </span>
+                  </button>
                 </div>
 
                 {settings.autoMaxIterations && (
@@ -1598,6 +1750,7 @@ const SideDrawer = ({
                     <LabelWithHelp
                       label='Auto iteration scale'
                       tooltip='Extra iterations added per zoom octave. Higher values sharpen deep zooms.'
+                      htmlFor='auto-iteration-scale-range'
                     />
                     <input
                       type='range'
@@ -1605,7 +1758,10 @@ const SideDrawer = ({
                       max={512}
                       step={16}
                       value={autoIterationsScaleDraft}
-                      className='w-full accent-cyan-400 dark:accent-cyan-300'
+                      className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+                      id='auto-iteration-scale-range'
+                      name='auto-iteration-scale'
+                      aria-label='Auto iteration scale'
                       onChange={(event) => {
                         const nextValue = Math.max(
                           0,
@@ -1624,6 +1780,7 @@ const SideDrawer = ({
                   <LabelWithHelp
                     label='Tile size'
                     tooltip='Size of render tiles in pixels. Smaller tiles update more granularly but add overhead.'
+                    htmlFor='tile-size-range'
                   />
                   <input
                     type='range'
@@ -1631,7 +1788,10 @@ const SideDrawer = ({
                     max={512}
                     step={32}
                     value={tileSizeDraft}
-                    className='w-full accent-cyan-400 dark:accent-cyan-300'
+                    className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+                    id='tile-size-range'
+                    name='tile-size'
+                    aria-label='Tile size'
                     onChange={(event) => {
                       const nextValue = Math.max(
                         32,
@@ -1647,6 +1807,7 @@ const SideDrawer = ({
                   <LabelWithHelp
                     label='Worker count'
                     tooltip='Number of render workers. Higher counts use more CPU.'
+                    htmlFor='worker-count-range'
                   />
                   <input
                     type='range'
@@ -1654,7 +1815,10 @@ const SideDrawer = ({
                     max={workerMax}
                     step={1}
                     value={workerCountDraft}
-                    className='w-full accent-cyan-400 dark:accent-cyan-300'
+                    className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+                    id='worker-count-range'
+                    name='worker-count'
+                    aria-label='Worker count'
                     onChange={(event) => {
                       const nextValue = Math.max(
                         1,
@@ -1674,6 +1838,7 @@ const SideDrawer = ({
                   <LabelWithHelp
                     label='Refinement speed'
                     tooltip='Number of progressive passes from coarse to fine.'
+                    htmlFor='refinement-speed-range'
                   />
                   <input
                     type='range'
@@ -1681,7 +1846,10 @@ const SideDrawer = ({
                     max={refinementOptions.length - 1}
                     step={1}
                     value={refinementPreset}
-                    className='w-full accent-cyan-400 dark:accent-cyan-300'
+                    className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+                    id='refinement-speed-range'
+                    name='refinement-speed'
+                    aria-label='Refinement speed'
                     onChange={(event) => {
                       const index = Math.round(Number(event.target.value));
                       const preset = refinementOptions[index];
@@ -1702,6 +1870,7 @@ const SideDrawer = ({
                   <LabelWithHelp
                     label='Final quality'
                     tooltip='Smallest block size used for the final pass.'
+                    htmlFor='final-quality-range'
                   />
                   <input
                     type='range'
@@ -1709,7 +1878,10 @@ const SideDrawer = ({
                     max={finalQualityOptions.length - 1}
                     step={1}
                     value={finalQualityPreset}
-                    className='w-full accent-cyan-400 dark:accent-cyan-300'
+                    className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+                    id='final-quality-range'
+                    name='final-quality'
+                    aria-label='Final quality'
                     onChange={(event) => {
                       const index = Math.round(Number(event.target.value));
                       const option = finalQualityOptions[index];
@@ -1732,10 +1904,14 @@ const SideDrawer = ({
                   <LabelWithHelp
                     label='Renderer'
                     tooltip='Experimental GPU path. Multi-limb is slowest but highest precision. Distribution colouring is not supported on GPU.'
+                    htmlFor='renderer-select'
                   />
                   <div className='relative'>
                     <select
-                      className='w-full appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+                      className='w-full touch-manipulation appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+                      id='renderer-select'
+                      name='renderer'
+                      aria-label='Renderer'
                       value={currentRendererValue}
                       onChange={(event) => handleRendererChange(event.target.value)}
                     >
@@ -1753,6 +1929,7 @@ const SideDrawer = ({
                       className='pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-white/60'
                       viewBox='0 0 24 24'
                       fill='none'
+                      aria-hidden='true'
                     >
                       <path
                         d='M7 10l5 5 5-5'
@@ -1770,10 +1947,14 @@ const SideDrawer = ({
                     <LabelWithHelp
                       label='Limb profile'
                       tooltip='Controls how many fractional limbs are used. Higher values increase precision but reduce integer range.'
+                      htmlFor='limb-profile-select'
                     />
                     <div className='relative'>
                       <select
-                        className='w-full appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+                        className='w-full touch-manipulation appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+                        id='limb-profile-select'
+                        name='limb-profile'
+                        aria-label='Limb profile'
                         value={settings.gpuLimbProfile}
                         onChange={(event) =>
                           onUpdateSettings({
@@ -1796,6 +1977,7 @@ const SideDrawer = ({
                         className='pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-white/60'
                         viewBox='0 0 24 24'
                         fill='none'
+                        aria-hidden='true'
                       >
                         <path
                           d='M7 10l5 5 5-5'
@@ -1812,68 +1994,76 @@ const SideDrawer = ({
 
               <Section title='Interface'>
                 <div className='space-y-3'>
-                  <div className='flex items-center justify-between rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-3 dark:border-white/10 dark:bg-white/5'>
+                  <button
+                    type='button'
+                    role='switch'
+                    aria-checked={theme === 'dark'}
+                    aria-label='Dark mode'
+                    className='flex w-full touch-manipulation items-center justify-between rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5'
+                    onClick={onToggleTheme}
+                  >
                     <LabelWithHelp
                       label='Dark mode'
                       tooltip='Use the dark colour scheme for the interface.'
                       variant='body'
                     />
-                    <button
-                      type='button'
-                      role='switch'
-                      aria-checked={theme === 'dark'}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full border border-slate-200/70 transition dark:border-white/10 ${
+                    <span
+                      aria-hidden
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full border border-slate-200/70 transition motion-reduce:transition-none dark:border-white/10 ${
                         theme === 'dark'
                           ? 'bg-cyan-500/25 dark:bg-cyan-400/30'
                           : 'bg-slate-300/70 dark:bg-white/15'
                       }`}
-                      onClick={onToggleTheme}
                     >
                       <span
-                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition motion-reduce:transition-none ${
                           theme === 'dark' ? 'translate-x-5' : 'translate-x-0.5'
                         }`}
                       />
-                    </button>
-                  </div>
-                  <div className='flex items-center justify-between rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-3 dark:border-white/10 dark:bg-white/5'>
+                    </span>
+                  </button>
+                  <button
+                    type='button'
+                    role='switch'
+                    aria-checked={settings.autoUpdateUrl}
+                    aria-label='Auto update URL'
+                    className='flex w-full touch-manipulation items-center justify-between rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5'
+                    onClick={() =>
+                      onUpdateSettings({
+                        autoUpdateUrl: !settings.autoUpdateUrl,
+                      })
+                    }
+                  >
                     <LabelWithHelp
                       label='Auto update URL'
                       tooltip='Keep the URL in sync with your current position and zoom.'
                       variant='body'
                     />
-                    <button
-                      type='button'
-                      role='switch'
-                      aria-checked={settings.autoUpdateUrl}
-                      className={`relative inline-flex h-6 w-11 items-center rounded-full border border-slate-200/70 transition dark:border-white/10 ${
+                    <span
+                      aria-hidden
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full border border-slate-200/70 transition motion-reduce:transition-none dark:border-white/10 ${
                         settings.autoUpdateUrl
                           ? 'bg-cyan-500/25 dark:bg-cyan-400/30'
                           : 'bg-slate-300/70 dark:bg-white/15'
                       }`}
-                      onClick={() =>
-                        onUpdateSettings({
-                          autoUpdateUrl: !settings.autoUpdateUrl,
-                        })
-                      }
                     >
                       <span
-                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition ${
+                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition motion-reduce:transition-none ${
                           settings.autoUpdateUrl
                             ? 'translate-x-5'
                             : 'translate-x-0.5'
                         }`}
                       />
-                    </button>
-                  </div>
+                    </span>
+                  </button>
                 </div>
                 <div>
                   <button
                     type='button'
-                    className='w-full rounded-xl border border-slate-200/70 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
+                    className='w-full touch-manipulation rounded-xl border border-slate-200/70 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
                     onClick={onResetSettings}
                   >
-                    Reset to defaults
+                    Reset to Defaults
                   </button>
                 </div>
               </Section>
@@ -1884,14 +2074,27 @@ const SideDrawer = ({
 
       {paletteModalOpen && (
         <div className='fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 px-4 py-6 backdrop-blur-sm'>
-          <div className='w-full max-w-5xl rounded-2xl border border-slate-200/70 bg-white/95 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.2)] dark:border-white/10 dark:bg-slate-900/90 dark:shadow-[0_20px_60px_rgba(0,0,0,0.6)]'>
+          <div
+            id='palette-editor-modal'
+            role='dialog'
+            aria-modal='true'
+            aria-labelledby='palette-editor-title'
+            aria-describedby='palette-editor-hint'
+            ref={paletteModalRef}
+            tabIndex={-1}
+            onKeyDown={handlePaletteModalKeyDown}
+            className='w-full max-w-5xl max-h-[90vh] overflow-y-auto overscroll-contain rounded-2xl border border-slate-200/70 bg-white/95 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.2)] dark:border-white/10 dark:bg-slate-900/90 dark:shadow-[0_20px_60px_rgba(0,0,0,0.6)]'
+          >
             <div className='flex items-center justify-between'>
               <div>
                 <div className='text-[11px] uppercase tracking-[0.2em] text-slate-500 dark:text-white/50'>
-                  Palette editor
+                  Palette Editor
                 </div>
-                <div className='text-lg font-semibold text-slate-900 dark:text-white'>
-                  Colour stops
+                <div
+                  id='palette-editor-title'
+                  className='text-lg font-semibold text-slate-900 dark:text-white'
+                >
+                  Colour Stops
                 </div>
               </div>
             </div>
@@ -1899,15 +2102,20 @@ const SideDrawer = ({
             <div className='mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]'>
               <div className='space-y-4'>
                 <div
-                  className='relative h-10 w-full cursor-crosshair overflow-hidden rounded-full border border-slate-200/70 bg-slate-200 dark:border-white/10 dark:bg-white/5'
+                  className='relative h-10 w-full cursor-crosshair select-none overflow-hidden rounded-full border border-slate-200/70 bg-slate-200 dark:border-white/10 dark:bg-white/5'
                   style={{ backgroundImage: paletteGradient }}
                   ref={paletteBarRef}
                   onClick={handlePaletteBarClick}
+                  onKeyDown={handlePaletteBarKeyDown}
+                  role='button'
+                  tabIndex={0}
+                  aria-label='Palette stop bar'
+                  aria-describedby='palette-editor-hint'
                 >
                   {sortedStops.map((stop) => (
                     <div
                       key={`${stop.colour}-${stop.index}`}
-                      className={`absolute top-1/2 h-6 w-6 -translate-y-1/2 rounded-full border border-white shadow-[0_4px_12px_rgba(15,23,42,0.25)] ${
+                      className={`absolute top-1/2 h-6 w-6 -translate-y-1/2 touch-manipulation rounded-full border border-white shadow-[0_4px_12px_rgba(15,23,42,0.25)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/80 ${
                         selectedStopIndex === stop.index
                           ? 'ring-2 ring-cyan-400/80'
                           : ''
@@ -1919,7 +2127,8 @@ const SideDrawer = ({
                       }}
                       role='button'
                       tabIndex={0}
-                      aria-label='Drag palette stop'
+                      aria-label='Palette stop'
+                      aria-pressed={selectedStopIndex === stop.index}
                       onPointerDown={(event) => {
                         event.preventDefault();
                         event.stopPropagation();
@@ -1930,22 +2139,46 @@ const SideDrawer = ({
                         };
                       }}
                       onClick={(event) => event.stopPropagation()}
+                      onKeyDown={(event) => {
+                        if (event.key === 'Enter' || event.key === ' ') {
+                          event.preventDefault();
+                          setSelectedStopIndex(stop.index);
+                          return;
+                        }
+                        if (event.key === 'Backspace' || event.key === 'Delete') {
+                          event.preventDefault();
+                          handleRemoveStop(stop.index);
+                          return;
+                        }
+                        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                          event.preventDefault();
+                          const step = event.shiftKey ? 0.05 : 0.01;
+                          const direction = event.key === 'ArrowRight' ? 1 : -1;
+                          handlePaletteStopChange(stop.index, {
+                            position: stop.position + step * direction,
+                          });
+                        }
+                      }}
                     />
                   ))}
                 </div>
 
-                <div className='text-[11px] text-slate-500 dark:text-white/50'>
-                  Click the bar to add a stop. Drag the dots to reposition.
+                <div
+                  id='palette-editor-hint'
+                  className='text-[11px] text-slate-500 dark:text-white/50'
+                >
+                  Click the bar to add a stop. Drag the dots or use arrow keys to reposition.
                 </div>
 
                 <div className='rounded-xl border border-slate-200/70 bg-white/60 px-4 py-4 dark:border-white/10 dark:bg-white/5'>
                   <div className='text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-white/60'>
-                    Edit stop
+                    Edit Stop
                   </div>
                   {selectedStop ? (
                     <div className='mt-4 flex flex-wrap items-start gap-4'>
                       <HexColorPicker
                         color={selectedStop.colour}
+                        aria-label='Stop colour'
                         onChange={(value) =>
                           handlePaletteStopChange(selectedStopIndex ?? 0, {
                             colour: value,
@@ -1954,7 +2187,10 @@ const SideDrawer = ({
                       />
                       <div className='flex min-w-[160px] flex-1 flex-col gap-3'>
                         <div className='flex items-center gap-2'>
-                          <label className='text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-white/50'>
+                          <label
+                            htmlFor='palette-stop-position'
+                            className='text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-white/50'
+                          >
                             Position
                           </label>
                           <input
@@ -1963,7 +2199,11 @@ const SideDrawer = ({
                             max={100}
                             step={0.1}
                             value={Math.round(selectedStop.position * 1000) / 10}
-                            className='w-20 rounded-lg border border-slate-200/70 bg-white px-2 py-1 text-xs text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/80'
+                            id='palette-stop-position'
+                            name='palette-stop-position'
+                            inputMode='decimal'
+                            autoComplete='off'
+                            className='w-20 rounded-lg border border-slate-200/70 bg-white px-2 py-1 text-xs text-slate-700 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/80'
                             onChange={(event) => {
                               const nextValue = Number(event.target.value);
                               const clamped = Math.min(100, Math.max(0, nextValue));
@@ -1978,7 +2218,7 @@ const SideDrawer = ({
                         </div>
                         <button
                           type='button'
-                          className='self-start rounded-md border border-slate-200/70 bg-white px-2 py-1 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:opacity-40 dark:border-white/10 dark:bg-white/5 dark:text-white/70 dark:hover:bg-white/10'
+                          className='self-start touch-manipulation rounded-md border border-slate-200/70 bg-white px-2 py-1 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none disabled:opacity-40 dark:border-white/10 dark:bg-white/5 dark:text-white/70 dark:hover:bg-white/10'
                           onClick={() =>
                             selectedStopIndex !== null
                               ? handleRemoveStop(selectedStopIndex)
@@ -1986,7 +2226,7 @@ const SideDrawer = ({
                           }
                           disabled={paletteStopsDraft.length <= 2}
                         >
-                          Remove stop
+                          Remove Stop
                         </button>
                       </div>
                     </div>
@@ -1998,51 +2238,58 @@ const SideDrawer = ({
                 </div>
 
                 <div className='space-y-2'>
-                  <label className='text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-white/60'>
-                    Palette name
+                  <label
+                    htmlFor='palette-name'
+                    className='text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-white/60'
+                  >
+                    Palette Name
                   </label>
                   <input
                     type='text'
+                    id='palette-name'
+                    name='palette-name'
+                    autoComplete='off'
+                    spellCheck={false}
                     value={paletteNameDraft}
                     onChange={(event) => setPaletteNameDraft(event.target.value)}
-                    placeholder='Custom palette'
-                    className='w-full rounded-lg border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus:outline-none focus:ring-2 focus:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90'
+                    placeholder='Custom palette…'
+                    className='w-full rounded-lg border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90'
                   />
                 </div>
 
                 <div className='flex flex-wrap gap-2'>
                   <button
                     type='button'
-                    className='rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
+                    className='touch-manipulation rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
                     onClick={handleSavePalette}
                     disabled={saveDisabled}
                   >
-                    Save palette
+                    Save Palette
                   </button>
                   <button
                     type='button'
-                    className='rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
+                    className='touch-manipulation rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
                     onClick={handleSavePaletteAs}
                   >
-                    Save palette as...
+                    Save Palette As…
                   </button>
                   <button
                     type='button'
-                    className='rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
+                    className='touch-manipulation rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
                     onClick={handleNewPalette}
                   >
-                    New palette
+                    New Palette
                   </button>
                   <button
                     type='button'
-                    className='rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
+                    className='touch-manipulation rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
                     onClick={handleRandomPalette}
                   >
-                    Random palette
+                    Random Palette
                   </button>
                   <button
                     type='button'
-                    className='rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
+                    className='touch-manipulation rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
                     onClick={handleResetPalette}
                     disabled={!paletteDraftDirty}
                   >
@@ -2052,10 +2299,10 @@ const SideDrawer = ({
                 <div className='border-t border-slate-200/70 pt-4 dark:border-white/10' />
                 <div className='space-y-2'>
                   <LabelWithHelp
-                    label='Stored palettes'
+                    label='Stored Palettes'
                     tooltip='Manage saved palettes stored in this browser.'
                   />
-                  <div className='max-h-48 space-y-2 overflow-y-auto pr-1'>
+                  <div className='max-h-48 space-y-2 overflow-y-auto overscroll-contain pr-1'>
                     {palettePresets.map((preset) => {
                       const isCustom = customPalettes.some(
                         (item) => item.id === preset.id,
@@ -2073,6 +2320,8 @@ const SideDrawer = ({
                           <div
                             className='h-5 w-28 shrink-0 rounded-lg border border-slate-200/70 bg-slate-200 dark:border-white/10 dark:bg-white/5'
                             style={{ backgroundImage: getPaletteGradient(preset.stops) }}
+                            role='img'
+                            aria-label={`${preset.name} palette preview`}
                           />
                           <div className='flex min-w-0 flex-1 items-center justify-between gap-2'>
                             <div className='flex min-w-0 items-center gap-2'>
@@ -2092,16 +2341,18 @@ const SideDrawer = ({
                             <div className='flex gap-2 text-[11px]'>
                               <button
                                 type='button'
-                                className='rounded-md border border-slate-200/70 bg-white px-2 py-1 font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-white/70 dark:hover:bg-white/10'
+                                className='touch-manipulation rounded-md border border-slate-200/70 bg-white px-2 py-1 font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5 dark:text-white/70 dark:hover:bg-white/10'
                                 onClick={() => handleEditPalette(preset)}
+                                aria-label={`Edit palette ${preset.name}`}
                               >
                                 Edit
                               </button>
                               <button
                                 type='button'
-                                className='rounded-md border border-slate-200/70 bg-white px-2 py-1 font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 disabled:opacity-40 dark:border-white/10 dark:bg-white/5 dark:text-white/70 dark:hover:bg-white/10'
+                                className='touch-manipulation rounded-md border border-slate-200/70 bg-white px-2 py-1 font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none disabled:opacity-40 dark:border-white/10 dark:bg-white/5 dark:text-white/70 dark:hover:bg-white/10'
                                 onClick={() => handleDeletePalette(preset.id)}
                                 disabled={!isCustom}
+                                aria-label={`Delete palette ${preset.name}`}
                               >
                                 Delete
                               </button>
@@ -2116,14 +2367,14 @@ const SideDrawer = ({
                 <div className='flex flex-wrap justify-end gap-2 border-t border-slate-200/70 pt-4 dark:border-white/10'>
                   <button
                     type='button'
-                    className='rounded-lg border border-slate-200/70 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
+                    className='touch-manipulation rounded-lg border border-slate-200/70 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
                     onClick={closePaletteModal}
                   >
                     Cancel
                   </button>
                   <button
                     type='button'
-                    className='rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-semibold text-cyan-700 shadow-sm transition hover:bg-cyan-500/20 disabled:opacity-50 dark:border-cyan-300/40 dark:bg-cyan-300/10 dark:text-cyan-200'
+                    className='touch-manipulation rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-semibold text-cyan-700 shadow-sm transition hover:bg-cyan-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none disabled:opacity-50 dark:border-cyan-300/40 dark:bg-cyan-300/10 dark:text-cyan-200'
                     onClick={applyPaletteStops}
                     disabled={!paletteDirty}
                   >
@@ -2138,16 +2389,35 @@ const SideDrawer = ({
                 </div>
                 <div className='overflow-hidden rounded-2xl border border-slate-200/70 bg-slate-100 dark:border-white/10 dark:bg-white/5'>
                   <div
-                    className='relative w-full pb-[100%] cursor-zoom-in'
+                    className='relative w-full pb-[100%] cursor-zoom-in touch-manipulation focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50'
                     onClick={(event) => applyPreviewZoom(event, true)}
                     onContextMenu={(event) => {
                       event.preventDefault();
                       applyPreviewZoom(event, false);
                     }}
+                    onKeyDown={(event) => {
+                      if (event.key === 'Enter' || event.key === ' ') {
+                        event.preventDefault();
+                        applyPreviewZoomAt(0.5, 0.5, true);
+                        return;
+                      }
+                      if (
+                        event.key === 'Backspace' ||
+                        event.key === 'Delete' ||
+                        event.key === '-'
+                      ) {
+                        event.preventDefault();
+                        applyPreviewZoomAt(0.5, 0.5, false);
+                      }
+                    }}
+                    role='button'
+                    tabIndex={0}
+                    aria-label='Palette preview. Press Enter to zoom in, Backspace to zoom out.'
                   >
                     <canvas
                       ref={previewCanvasRef}
                       className='absolute inset-0 h-full w-full object-cover'
+                      aria-hidden
                     />
                   </div>
                 </div>
