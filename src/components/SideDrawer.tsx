@@ -18,6 +18,7 @@ import {
 } from '../util/fractals';
 import { BUILTIN_PALETTES, type PalettePreset } from '../util/palettes';
 import { APP_BUILD_TIME, formatBuildTimestamp, getVersionLabel } from '../util/version';
+import { isAnalyticsEnabled, setAnalyticsEnabled } from '../util/analytics';
 import { START } from '../workers/WorkerCommands';
 import type { RenderSettings } from '../state/settings';
 
@@ -215,6 +216,9 @@ const SideDrawer = ({
   );
   const versionLabel = getVersionLabel();
   const buildLabel = formatBuildTimestamp(APP_BUILD_TIME);
+  const [analyticsEnabled, setAnalyticsEnabledState] = useState(() =>
+    isAnalyticsEnabled(),
+  );
   const paletteBarRef = useRef<HTMLDivElement | null>(null);
   const paletteModalRef = useRef<HTMLDivElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -2055,6 +2059,38 @@ const SideDrawer = ({
                           settings.autoUpdateUrl
                             ? 'translate-x-5'
                             : 'translate-x-0.5'
+                        }`}
+                      />
+                    </span>
+                  </button>
+                  <button
+                    type='button'
+                    role='switch'
+                    aria-checked={analyticsEnabled}
+                    aria-label='Analytics'
+                    className='flex w-full touch-manipulation items-center justify-between rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5'
+                    onClick={() => {
+                      const next = !analyticsEnabled;
+                      setAnalyticsEnabledState(next);
+                      setAnalyticsEnabled(next);
+                    }}
+                  >
+                    <LabelWithHelp
+                      label='Analytics'
+                      tooltip='Toggle anonymous usage analytics.'
+                      variant='body'
+                    />
+                    <span
+                      aria-hidden
+                      className={`relative inline-flex h-6 w-11 items-center rounded-full border border-slate-200/70 transition motion-reduce:transition-none dark:border-white/10 ${
+                        analyticsEnabled
+                          ? 'bg-cyan-500/25 dark:bg-cyan-400/30'
+                          : 'bg-slate-300/70 dark:bg-white/15'
+                      }`}
+                    >
+                      <span
+                        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition motion-reduce:transition-none ${
+                          analyticsEnabled ? 'translate-x-5' : 'translate-x-0.5'
                         }`}
                       />
                     </span>

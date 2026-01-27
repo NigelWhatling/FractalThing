@@ -22,6 +22,7 @@ import {
   APP_VERSION,
   formatBuildTimestamp,
 } from './util/version';
+import { initAnalytics, isAnalyticsEnabled, trackPageView } from './util/analytics';
 
 type WindowSize = {
   width: number;
@@ -272,6 +273,43 @@ const FractalRoute = () => {
   );
 };
 
+const AnalyticsTracker = () => {
+  const location = useLocation();
+  const measurementId = import.meta.env.VITE_GA_ID;
+  const [enabled, setEnabled] = useState(() => isAnalyticsEnabled());
+
+  useEffect(() => {
+    const handleToggle = (event: Event) => {
+      const detail = (event as CustomEvent<{ enabled: boolean }>).detail;
+      setEnabled(detail?.enabled ?? isAnalyticsEnabled());
+    };
+    window.addEventListener('fractal-analytics-change', handleToggle);
+    return () => {
+      window.removeEventListener('fractal-analytics-change', handleToggle);
+    };
+  }, []);
+
+  useEffect(() => {
+    if (!import.meta.env.PROD || !measurementId) {
+      return;
+    }
+    if (!enabled) {
+      return;
+    }
+    initAnalytics(measurementId);
+    const path = `${location.pathname}${location.search}${location.hash}`;
+    trackPageView(measurementId, path);
+  }, [
+    enabled,
+    location.hash,
+    location.pathname,
+    location.search,
+    measurementId,
+  ]);
+
+  return null;
+};
+
 const App = () => {
   useEffect(() => {
     const buildLabel = formatBuildTimestamp(APP_BUILD_TIME);
@@ -283,6 +321,7 @@ const App = () => {
 
   return (
     <BrowserRouter>
+      <AnalyticsTracker />
       <Routes>
         <Route path="/" element={<FractalRoute />} />
         <Route path="/:algorithm" element={<FractalRoute />} />
