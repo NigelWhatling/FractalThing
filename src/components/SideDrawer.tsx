@@ -36,6 +36,7 @@ const refinementOptions = [
   { label: 'Slow', steps: 7 },
   { label: 'Balanced', steps: 5 },
   { label: 'Fast', steps: 3 },
+  { label: 'Instant', steps: 1 },
 ];
 
 const finalQualityOptions = [

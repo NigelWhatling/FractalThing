@@ -30,7 +30,11 @@ const InfoPanel = ({
 }: InfoPanelProps) => {
   const renderStatus = isRendering ? 'Rendering…' : 'Idle';
   const finalRenderLabel =
-    finalRenderMs === null ? '—' : `${Math.max(0, finalRenderMs).toFixed(2)} ms`;
+    finalRenderMs === null
+      ? '—'
+      : finalRenderMs >= 1000
+        ? `${(finalRenderMs / 1000).toFixed(2)} s`
+        : `${Math.max(0, finalRenderMs).toFixed(2)} ms`;
 
   return (
     <div className="pointer-events-none fixed bottom-0 left-0 right-0 z-50 grid grid-cols-[1fr_auto_1fr] items-center gap-3 bg-slate-950/60 backdrop-blur-sm px-3 py-1 text-[11px]">

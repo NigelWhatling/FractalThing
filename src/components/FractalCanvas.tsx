@@ -302,8 +302,11 @@ const shiftFloatBuffer = (
 };
 
 const buildBlockSteps = (stepsCount: number, finalBlockSize: number) => {
-  const clampedSteps = Math.max(2, Math.round(stepsCount));
+  const clampedSteps = Math.max(1, Math.round(stepsCount));
   const clampedFinal = Math.min(BASE_BLOCK_SIZE, Math.max(1, Math.round(finalBlockSize)));
+  if (clampedSteps === 1) {
+    return [clampedFinal];
+  }
   const start = Math.log(BASE_BLOCK_SIZE);
   const end = Math.log(clampedFinal);
   const step = (end - start) / (clampedSteps - 1);
@@ -324,6 +327,27 @@ const buildBlockSteps = (stepsCount: number, finalBlockSize: number) => {
   }
 
   return steps;
+};
+
+const buildGpuIterationSteps = (maxIterations: number, stepsCount: number) => {
+  const maxValue = Math.max(1, Math.round(maxIterations));
+  const count = Math.max(1, Math.round(stepsCount));
+  if (count === 1) {
+    return [maxValue];
+  }
+  const steps: number[] = [];
+  for (let index = 0; index < count; index += 1) {
+    const divisor = Math.pow(2, count - 1 - index);
+    steps.push(Math.max(1, Math.round(maxValue / divisor)));
+  }
+  steps[steps.length - 1] = maxValue;
+  const unique: number[] = [];
+  for (const step of steps) {
+    if (unique[unique.length - 1] !== step) {
+      unique.push(step);
+    }
+  }
+  return unique;
 };
 
 const parseNavFromLoc = (loc?: string, fallback?: Navigation): Navigation => {
@@ -384,6 +408,7 @@ const FractalCanvas = ({
   const [paletteRevision, setPaletteRevision] = useState(0);
   const [gpuPrecision, setGpuPrecision] = useState<'highp' | 'mediump' | null>(null);
   const [finalRenderMs, setFinalRenderMs] = useState<number | null>(null);
+  const [gpuIterationCap, setGpuIterationCap] = useState<number>(1);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
   const glCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -441,6 +466,8 @@ const FractalCanvas = ({
   const scratchCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const renderConfigRef = useRef<RenderConfig | null>(null);
   const renderIdRef = useRef(0);
+  const gpuRenderIdRef = useRef(0);
+  const gpuPassRafRef = useRef<number | null>(null);
   const workerIndexRef = useRef(0);
   const navRef = useRef(nav);
   const isRenderingRef = useRef(false);
@@ -522,6 +549,15 @@ const FractalCanvas = ({
     settings.autoMaxIterations,
     settings.maxIterations,
   ]);
+
+  const gpuIterationSteps = useMemo(
+    () => buildGpuIterationSteps(effectiveMaxIterations, settings.refinementStepsCount),
+    [effectiveMaxIterations, settings.refinementStepsCount]
+  );
+  const gpuFinalIterations = useMemo(
+    () => gpuIterationSteps[gpuIterationSteps.length - 1] ?? effectiveMaxIterations,
+    [effectiveMaxIterations, gpuIterationSteps]
+  );
 
   const activeLimbProfile = useMemo(
     () => getLimbProfile(settings.gpuLimbProfile),
@@ -745,6 +781,90 @@ const FractalCanvas = ({
     isRenderingRef.current = value;
     setIsRendering(value);
   }, []);
+
+  useEffect(() => {
+    if (!useWebGL) {
+      if (settings.renderBackend === 'gpu') {
+        setRendering(false);
+      }
+      if (gpuPassRafRef.current !== null) {
+        window.cancelAnimationFrame(gpuPassRafRef.current);
+        gpuPassRafRef.current = null;
+      }
+      return;
+    }
+    if (gpuPassRafRef.current !== null) {
+      window.cancelAnimationFrame(gpuPassRafRef.current);
+      gpuPassRafRef.current = null;
+    }
+    const timerExt = glTimerExtRef.current;
+    if (timerExt && glTimerQueryRef.current) {
+      timerExt.deleteQueryEXT(glTimerQueryRef.current);
+      glTimerQueryRef.current = null;
+    }
+    if (glTimerRafRef.current !== null) {
+      window.cancelAnimationFrame(glTimerRafRef.current);
+      glTimerRafRef.current = null;
+    }
+
+    const renderId = gpuRenderIdRef.current + 1;
+    gpuRenderIdRef.current = renderId;
+    const steps =
+      gpuIterationSteps.length > 0
+        ? gpuIterationSteps
+        : [Math.max(1, Math.round(effectiveMaxIterations))];
+    setFinalRenderMs(null);
+    setGpuIterationCap(steps[0]);
+    const hasMultiple = steps.length > 1;
+    setRendering(hasMultiple);
+
+    if (!hasMultiple) {
+      return;
+    }
+
+    let index = 0;
+    const runPass = () => {
+      if (gpuRenderIdRef.current !== renderId) {
+        gpuPassRafRef.current = null;
+        return;
+      }
+      index += 1;
+      if (index >= steps.length) {
+        gpuPassRafRef.current = null;
+        return;
+      }
+      setGpuIterationCap(steps[index]);
+      gpuPassRafRef.current = window.requestAnimationFrame(runPass);
+    };
+    gpuPassRafRef.current = window.requestAnimationFrame(runPass);
+    return () => {
+      if (gpuPassRafRef.current !== null) {
+        window.cancelAnimationFrame(gpuPassRafRef.current);
+        gpuPassRafRef.current = null;
+      }
+    };
+  }, [
+    effectiveMaxIterations,
+    gpuIterationSteps,
+    limbRangeOk,
+    nav.x,
+    nav.y,
+    nav.z,
+    paletteRevision,
+    resolvedAlgorithm,
+    settings.colourMode,
+    settings.ditherStrength,
+    settings.filterMode,
+    settings.gpuLimbProfile,
+    settings.gpuPrecision,
+    settings.colourPeriod,
+    settings.renderBackend,
+    settings.smooth,
+    setRendering,
+    useWebGL,
+    width,
+    height,
+  ]);
 
   const applyDistributionColouring = useCallback(
     (config: RenderConfig) => {
@@ -988,14 +1108,15 @@ const FractalCanvas = ({
     if (!paletteTexture) {
       return;
     }
-    const maxIterations = Math.min(effectiveMaxIterations, GPU_MAX_ITERATIONS);
-    if (maxIterations <= 0 || palette.length === 0) {
+    const iterationCap = Math.min(gpuIterationCap, GPU_MAX_ITERATIONS);
+    const colourMax = Math.min(effectiveMaxIterations, GPU_MAX_ITERATIONS);
+    if (iterationCap <= 0 || palette.length === 0) {
       return;
     }
 
     const pscale =
       settings.colourMode === 'normalize' || settings.colourMode === 'distribution'
-        ? (palette.length - 1) / maxIterations
+        ? (palette.length - 1) / colourMax
         : settings.colourMode === 'cycle'
           ? (palette.length - 1) / Math.max(1, settings.colourPeriod)
           : (palette.length - 1) / MAX_PALETTE_ITERATIONS;
@@ -1022,8 +1143,10 @@ const FractalCanvas = ({
       : null;
 
     gl.useProgram(program);
+    const measureFinal = iterationCap >= gpuFinalIterations;
+    const cpuStart = performance.now();
     let timerQueryStarted = false;
-    if (timerExt && !glTimerQueryRef.current) {
+    if (timerExt && measureFinal && !glTimerQueryRef.current) {
       const query = timerExt.createQueryEXT();
       if (query) {
         timerExt.beginQueryEXT(timerExt.TIME_ELAPSED_EXT, query);
@@ -1110,7 +1233,7 @@ const FractalCanvas = ({
       gl.uniform1f(uniforms.yScaleLo, yScaleSplit.lo);
     }
     if (uniforms.max) {
-      gl.uniform1f(uniforms.max, maxIterations);
+      gl.uniform1f(uniforms.max, iterationCap);
     }
     if (uniforms.pscale) {
       gl.uniform1f(uniforms.pscale, pscale);
@@ -1146,13 +1269,20 @@ const FractalCanvas = ({
     gl.clearColor(0, 0, 0, 1);
     gl.clear(gl.COLOR_BUFFER_BIT);
     gl.drawArrays(gl.TRIANGLES, 0, 6);
+    const cpuElapsed = performance.now() - cpuStart;
     if (timerQueryStarted && timerExt) {
       timerExt.endQueryEXT(timerExt.TIME_ELAPSED_EXT);
       if (glTimerRafRef.current === null) {
         glTimerRafRef.current = window.requestAnimationFrame(pollGpuTimer);
       }
-    } else if (!timerExt) {
-      setFinalRenderMs((value) => value ?? 0);
+      if (measureFinal) {
+        setFinalRenderMs((value) => value ?? cpuElapsed);
+      }
+    } else if (measureFinal) {
+      setFinalRenderMs(cpuElapsed);
+    }
+    if (measureFinal) {
+      setRendering(false);
     }
 
     // Avoid disabling GPU based on sampled pixels; rely on shader compile/link success.
@@ -1167,6 +1297,8 @@ const FractalCanvas = ({
     palette,
     paletteRevision,
     effectiveMaxIterations,
+    gpuFinalIterations,
+    gpuIterationCap,
     settings.colourMode,
     settings.colourPeriod,
     settings.filterMode,
@@ -1181,6 +1313,7 @@ const FractalCanvas = ({
     limbProfileAvailable,
     limbRangeOk,
     pollGpuTimer,
+    setRendering,
   ]);
 
   const blockSteps = useMemo(
