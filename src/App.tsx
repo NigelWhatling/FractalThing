@@ -10,7 +10,7 @@ import {
 import FractalCanvas from './components/FractalCanvas';
 import InteractionModeToggle, { type InteractionMode } from './components/InteractionModeToggle';
 import SideDrawer from './components/SideDrawer';
-import { defaultSettings, settingsReducer } from './state/settings';
+import { defaultSettings, settingsReducer, type RenderSettings } from './state/settings';
 import {
   getDefaultView,
   normaliseAlgorithm,
@@ -24,11 +24,69 @@ type WindowSize = {
 
 type ThemeMode = 'light' | 'dark';
 
+const SETTINGS_STORAGE_KEY = 'fractal-thing-settings';
+
+const getDefaultSettings = (): RenderSettings => ({
+  ...defaultSettings,
+  paletteStops: defaultSettings.paletteStops.map((stop) => ({ ...stop })),
+});
+
+const loadStoredSettings = (): RenderSettings => {
+  const base = getDefaultSettings();
+  if (typeof window === 'undefined') {
+    return base;
+  }
+  const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+  if (!raw) {
+    return base;
+  }
+  try {
+    const parsed = JSON.parse(raw) as Partial<RenderSettings>;
+    if (!parsed || typeof parsed !== 'object') {
+      return base;
+    }
+    const renderBackend = parsed.renderBackend === 'gpu' ? 'gpu' : 'cpu';
+    const gpuPrecision =
+      parsed.gpuPrecision === 'double' || parsed.gpuPrecision === 'limb'
+        ? parsed.gpuPrecision
+        : 'single';
+    const gpuLimbProfile =
+      parsed.gpuLimbProfile === 'high' ||
+      parsed.gpuLimbProfile === 'extreme' ||
+      parsed.gpuLimbProfile === 'ultra'
+        ? parsed.gpuLimbProfile
+        : 'balanced';
+    const paletteStops = Array.isArray(parsed.paletteStops)
+      ? parsed.paletteStops
+          .filter(
+            (stop): stop is { position: number; colour: string } =>
+              Boolean(stop && typeof stop === 'object')
+          )
+          .map((stop) => ({
+            position: Number(stop.position),
+            colour: String(stop.colour),
+          }))
+      : null;
+
+    return {
+      ...base,
+      ...parsed,
+      renderBackend,
+      gpuPrecision,
+      gpuLimbProfile,
+      paletteStops: paletteStops && paletteStops.length >= 2 ? paletteStops : base.paletteStops,
+    };
+  } catch (error) {
+    console.warn('Failed to parse stored settings', error);
+    return base;
+  }
+};
+
 const formatNavValue = (value: number) => {
   if (!Number.isFinite(value)) {
     return '0';
   }
-  const fixed = value.toFixed(10);
+  const fixed = value.toFixed(15);
   return fixed.replace(/\.?0+$/, '');
 };
 
@@ -70,7 +128,11 @@ const FractalRoute = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { width, height } = useWindowSize();
-  const [settings, dispatchSettings] = useReducer(settingsReducer, defaultSettings);
+  const [settings, dispatchSettings] = useReducer(
+    settingsReducer,
+    defaultSettings,
+    loadStoredSettings
+  );
   const [interactionMode, setInteractionMode] = useState<InteractionMode>('grab');
   const [resetSignal, setResetSignal] = useState(0);
   const locParam = useMemo(() => {
@@ -111,6 +173,12 @@ const FractalRoute = () => {
     },
     []
   );
+  const handleResetSettings = useCallback(() => {
+    dispatchSettings({ type: 'update', payload: getDefaultSettings() });
+    if (typeof window !== 'undefined') {
+      window.localStorage.removeItem(SETTINGS_STORAGE_KEY);
+    }
+  }, []);
 
   const handleAlgorithmChange = useCallback(
     (nextAlgorithm: FractalAlgorithm) => {
@@ -137,6 +205,13 @@ const FractalRoute = () => {
     window.localStorage.setItem('theme', theme);
   }, [theme]);
 
+  useEffect(() => {
+    if (typeof window === 'undefined') {
+      return;
+    }
+    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
+  }, [settings]);
+
   return (
     <div className="relative h-screen w-screen overflow-hidden bg-gradient-to-br from-slate-50 via-slate-100 to-slate-200 text-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 dark:text-slate-100">
       <div
@@ -146,6 +221,7 @@ const FractalRoute = () => {
       <SideDrawer
         settings={settings}
         onUpdateSettings={updateSettings}
+        onResetSettings={handleResetSettings}
         algorithm={resolvedAlgorithm}
         onChangeAlgorithm={handleAlgorithmChange}
         theme={theme}

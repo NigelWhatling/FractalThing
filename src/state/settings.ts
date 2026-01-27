@@ -17,6 +17,9 @@ export type RenderSettings = {
   hueRotate: number;
   workerCount: number;
   autoUpdateUrl: boolean;
+  renderBackend: 'cpu' | 'gpu';
+  gpuPrecision: 'single' | 'double' | 'limb';
+  gpuLimbProfile: 'balanced' | 'high' | 'extreme' | 'ultra';
   paletteStops: PaletteStop[];
 };
 
@@ -44,6 +47,9 @@ export const defaultSettings: RenderSettings = {
   hueRotate: 0,
   workerCount: getDefaultWorkerCount(),
   autoUpdateUrl: true,
+  renderBackend: 'cpu',
+  gpuPrecision: 'single',
+  gpuLimbProfile: 'balanced',
   paletteStops: DEFAULT_PALETTE_STOPS.map((stop) => ({ ...stop })),
 };
 

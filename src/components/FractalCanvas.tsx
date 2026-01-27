@@ -2,6 +2,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { useLocation, useNavigate, useParams } from 'react-router-dom';
 import PaletteGenerator from '../util/PaletteGenerator';
 import { DEFAULT_JULIA, getDefaultView, normaliseAlgorithm } from '../util/fractals';
+import { GPU_VERTEX_SHADER, buildFragmentShaderSource } from '../util/gpuShaders';
 import InfoPanel from './InfoPanel';
 import { START, type WorkerResponseMessage, type WorkerStartMessage } from '../workers/WorkerCommands';
 import type { RenderSettings } from '../state/settings';
@@ -77,10 +78,39 @@ type SelectionRect = {
   height: number;
 };
 
+type GpuTimerExt = {
+  TIME_ELAPSED_EXT: number;
+  QUERY_RESULT_AVAILABLE_EXT: number;
+  QUERY_RESULT_EXT: number;
+  GPU_DISJOINT_EXT: number;
+  createQueryEXT: () => unknown;
+  beginQueryEXT: (target: number, query: unknown) => void;
+  endQueryEXT: (target: number) => void;
+  getQueryObjectEXT: (query: unknown, pname: number) => number | boolean;
+  deleteQueryEXT: (query: unknown) => void;
+};
+
 const BASE_NUMBER_RANGE = 1;
 const BASE_BLOCK_SIZE = 256;
 const MAX_PALETTE_ITERATIONS = 2048;
 const PRECISION_EPS_SCALE = 512;
+const GPU_MAX_ITERATIONS = 4096;
+const LIMB_BASE = 1024;
+const LIMB_HALF = LIMB_BASE / 2;
+const LIMB_COUNT = 12;
+
+const LIMB_PROFILES = [
+  { id: 'balanced', label: 'Balanced', fractional: 4 },
+  { id: 'high', label: 'High', fractional: 6 },
+  { id: 'extreme', label: 'Extreme', fractional: 7 },
+  { id: 'ultra', label: 'Ultra', fractional: 8 },
+] as const;
+
+type LimbProfileId = (typeof LIMB_PROFILES)[number]['id'];
+
+const getLimbProfile = (id: string | undefined) =>
+  LIMB_PROFILES.find((profile) => profile.id === id) ?? LIMB_PROFILES[0];
+
 
 const parseFloatWithDefault = (value: string | undefined, fallback: number) => {
   if (value === undefined) {
@@ -120,6 +150,128 @@ const hash2d = (x: number, y: number) => {
   let n = Math.imul(x, 374761393) + Math.imul(y, 668265263);
   n = Math.imul(n ^ (n >>> 13), 1274126177);
   return ((n ^ (n >>> 16)) >>> 0) / 4294967295;
+};
+
+type LimbVectors = {
+  lo: [number, number, number, number];
+  mid: [number, number, number, number];
+  hi: [number, number, number, number];
+};
+
+const buildLimbVectors = (value: number, fractional: number): LimbVectors => {
+  if (!Number.isFinite(value)) {
+    return { lo: [0, 0, 0, 0], hi: [0, 0, 0, 0] };
+  }
+  const limbScale = LIMB_BASE ** fractional;
+  let scaled = value * limbScale;
+  if (!Number.isFinite(scaled)) {
+    scaled = 0;
+  }
+  const sign = scaled < 0 ? -1 : 1;
+  let remaining = Math.abs(scaled);
+  const limbs = new Array<number>(LIMB_COUNT).fill(0);
+  for (let index = 0; index < LIMB_COUNT; index += 1) {
+    const digit = Math.floor(remaining % LIMB_BASE);
+    limbs[index] = digit * sign;
+    remaining = Math.floor(remaining / LIMB_BASE);
+  }
+  for (let index = 0; index < LIMB_COUNT - 1; index += 1) {
+    const carry = Math.floor((limbs[index] + LIMB_HALF) / LIMB_BASE);
+    limbs[index] -= carry * LIMB_BASE;
+    limbs[index + 1] += carry;
+  }
+  const carry = Math.floor((limbs[LIMB_COUNT - 1] + LIMB_HALF) / LIMB_BASE);
+  limbs[LIMB_COUNT - 1] -= carry * LIMB_BASE;
+  return {
+    lo: [limbs[0], limbs[1], limbs[2], limbs[3]],
+    mid: [limbs[4], limbs[5], limbs[6], limbs[7]],
+    hi: [limbs[8], limbs[9], limbs[10], limbs[11]],
+  };
+};
+
+const createShader = (
+  gl: WebGLRenderingContext,
+  type: number,
+  source: string
+) => {
+  const shader = gl.createShader(type);
+  if (!shader) {
+    return null;
+  }
+  gl.shaderSource(shader, source);
+  gl.compileShader(shader);
+  const status = gl.getShaderParameter(shader, gl.COMPILE_STATUS);
+  if (!status) {
+    if (import.meta.env.DEV) {
+      const info = gl.getShaderInfoLog(shader);
+      console.warn('WebGL shader compile failed', info);
+    }
+    gl.deleteShader(shader);
+    return null;
+  }
+  return shader;
+};
+
+const createProgram = (
+  gl: WebGLRenderingContext,
+  includeLimb: boolean,
+  limbFractional = 4,
+  limbCount = LIMB_COUNT
+) => {
+  const precision =
+    gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT)?.precision > 0
+      ? 'highp'
+      : 'mediump';
+  const vertexShader = createShader(gl, gl.VERTEX_SHADER, GPU_VERTEX_SHADER);
+  const fragmentShader = createShader(
+    gl,
+    gl.FRAGMENT_SHADER,
+    buildFragmentShaderSource(
+      GPU_MAX_ITERATIONS,
+      precision,
+      includeLimb,
+      limbFractional,
+      limbCount
+    )
+  );
+  if (!vertexShader || !fragmentShader) {
+    return null;
+  }
+  const program = gl.createProgram();
+  if (!program) {
+    return null;
+  }
+  gl.attachShader(program, vertexShader);
+  gl.attachShader(program, fragmentShader);
+  gl.linkProgram(program);
+  gl.deleteShader(vertexShader);
+  gl.deleteShader(fragmentShader);
+  const status = gl.getProgramParameter(program, gl.LINK_STATUS);
+  if (!status) {
+    if (import.meta.env.DEV) {
+      const info = gl.getProgramInfoLog(program);
+      console.warn('WebGL program link failed', info);
+    }
+    gl.deleteProgram(program);
+    return null;
+  }
+  return { program, precision };
+};
+
+const resolveAlgorithmIndex = (algorithm: string | undefined) => {
+  switch (algorithm) {
+    case 'julia':
+      return 1;
+    case 'burning-ship':
+      return 2;
+    case 'tricorn':
+      return 3;
+    case 'multibrot-3':
+      return 4;
+    case 'mandelbrot':
+    default:
+      return 0;
+  }
 };
 
 const shiftFloatBuffer = (
@@ -180,7 +332,10 @@ const parseNavFromLoc = (loc?: string, fallback?: Navigation): Navigation => {
     return defaults;
   }
 
-  const matches = loc.match(/@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)(?:x(\d+(?:\.\d+)?))?/i);
+  const numberPattern = '-?\\d+(?:\\.\\d+)?(?:e[-+]?\\d+)?';
+  const matches = loc.match(
+    new RegExp(`@(${numberPattern}),(${numberPattern})(?:x(${numberPattern}))?`, 'i')
+  );
   if (!matches) {
     return defaults;
   }
@@ -196,7 +351,7 @@ const formatNavValue = (value: number) => {
   if (!Number.isFinite(value)) {
     return '0';
   }
-  const fixed = value.toFixed(10);
+  const fixed = value.toFixed(15);
   return fixed.replace(/\.?0+$/, '');
 };
 
@@ -223,9 +378,65 @@ const FractalCanvas = ({
   );
   const [selectionRect, setSelectionRect] = useState<SelectionRect | null>(null);
   const workerCount = Math.max(1, Math.round(settings.workerCount || 1));
+  const [gpuAvailable, setGpuAvailable] = useState(false);
+  const [gpuSupportsLimb, setGpuSupportsLimb] = useState(false);
+  const [gpuLimbProfiles, setGpuLimbProfiles] = useState<LimbProfileId[]>([]);
+  const [paletteRevision, setPaletteRevision] = useState(0);
+  const [gpuPrecision, setGpuPrecision] = useState<'highp' | 'mediump' | null>(null);
+  const [finalRenderMs, setFinalRenderMs] = useState<number | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement | null>(null);
+  const glCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const contextRef = useRef<CanvasRenderingContext2D | null>(null);
+  const glRef = useRef<WebGLRenderingContext | null>(null);
+  const glProgramRef = useRef<WebGLProgram | null>(null);
+  const glLimbProgramsRef = useRef<Map<LimbProfileId, WebGLProgram>>(new Map());
+  const glPaletteTextureRef = useRef<WebGLTexture | null>(null);
+  const glBufferRef = useRef<WebGLBuffer | null>(null);
+  const glTimerExtRef = useRef<GpuTimerExt | null>(null);
+  const glTimerQueryRef = useRef<unknown | null>(null);
+  const glTimerRafRef = useRef<number | null>(null);
+  const glUniformsRef = useRef<{
+    resolution?: WebGLUniformLocation | null;
+    x0?: WebGLUniformLocation | null;
+    y0?: WebGLUniformLocation | null;
+    xScale?: WebGLUniformLocation | null;
+    yScale?: WebGLUniformLocation | null;
+    x0LimbLo?: WebGLUniformLocation | null;
+    x0LimbMid?: WebGLUniformLocation | null;
+    x0LimbHi?: WebGLUniformLocation | null;
+    y0LimbLo?: WebGLUniformLocation | null;
+    y0LimbMid?: WebGLUniformLocation | null;
+    y0LimbHi?: WebGLUniformLocation | null;
+    xScaleLimbLo?: WebGLUniformLocation | null;
+    xScaleLimbMid?: WebGLUniformLocation | null;
+    xScaleLimbHi?: WebGLUniformLocation | null;
+    yScaleLimbLo?: WebGLUniformLocation | null;
+    yScaleLimbMid?: WebGLUniformLocation | null;
+    yScaleLimbHi?: WebGLUniformLocation | null;
+    x0Hi?: WebGLUniformLocation | null;
+    x0Lo?: WebGLUniformLocation | null;
+    y0Hi?: WebGLUniformLocation | null;
+    y0Lo?: WebGLUniformLocation | null;
+    xScaleHi?: WebGLUniformLocation | null;
+    xScaleLo?: WebGLUniformLocation | null;
+    yScaleHi?: WebGLUniformLocation | null;
+    yScaleLo?: WebGLUniformLocation | null;
+    max?: WebGLUniformLocation | null;
+    pscale?: WebGLUniformLocation | null;
+    paletteSize?: WebGLUniformLocation | null;
+    colourMode?: WebGLUniformLocation | null;
+    smooth?: WebGLUniformLocation | null;
+    ditherStrength?: WebGLUniformLocation | null;
+    algorithm?: WebGLUniformLocation | null;
+    useDouble?: WebGLUniformLocation | null;
+    useLimb?: WebGLUniformLocation | null;
+    julia?: WebGLUniformLocation | null;
+    palette?: WebGLUniformLocation | null;
+  } | null>(null);
+  const glLimbUniformsRef = useRef<
+    Map<LimbProfileId, { [key: string]: WebGLUniformLocation | null }>
+  >(new Map());
   const workersRef = useRef<Worker[]>([]);
   const scratchCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const renderConfigRef = useRef<RenderConfig | null>(null);
@@ -265,6 +476,156 @@ const FractalCanvas = ({
     moved: false,
   });
   const suppressClickRef = useRef(false);
+  const finalPassRef = useRef<{ renderId: number | null; start: number | null }>({
+    renderId: null,
+    start: null,
+  });
+
+  const pollGpuTimer = useCallback(() => {
+    const ext = glTimerExtRef.current;
+    const gl = glRef.current;
+    const query = glTimerQueryRef.current;
+    if (!ext || !gl || !query) {
+      glTimerRafRef.current = null;
+      return;
+    }
+    const available = ext.getQueryObjectEXT(query, ext.QUERY_RESULT_AVAILABLE_EXT);
+    const disjoint = gl.getParameter(ext.GPU_DISJOINT_EXT);
+    if (available && !disjoint) {
+      const result = ext.getQueryObjectEXT(query, ext.QUERY_RESULT_EXT);
+      if (typeof result === 'number' && Number.isFinite(result)) {
+        setFinalRenderMs(Math.max(0, result / 1e6));
+      }
+    }
+    if (available || disjoint) {
+      ext.deleteQueryEXT(query);
+      glTimerQueryRef.current = null;
+      glTimerRafRef.current = null;
+      return;
+    }
+    glTimerRafRef.current = window.requestAnimationFrame(pollGpuTimer);
+  }, []);
+
+  const effectiveMaxIterations = useMemo(() => {
+    if (!settings.autoMaxIterations) {
+      return settings.maxIterations;
+    }
+    return Math.max(
+      settings.maxIterations,
+      Math.round(
+        settings.maxIterations + settings.autoIterationsScale * Math.log2(Math.max(1, nav.z))
+      )
+    );
+  }, [
+    nav.z,
+    settings.autoIterationsScale,
+    settings.autoMaxIterations,
+    settings.maxIterations,
+  ]);
+
+  const activeLimbProfile = useMemo(
+    () => getLimbProfile(settings.gpuLimbProfile),
+    [settings.gpuLimbProfile]
+  );
+
+  const limbProfileAvailable = useMemo(
+    () =>
+      settings.gpuPrecision !== 'limb' ||
+      gpuLimbProfiles.includes(activeLimbProfile.id),
+    [activeLimbProfile.id, gpuLimbProfiles, settings.gpuPrecision]
+  );
+  const limbRangeOk = useMemo(() => {
+    if (settings.gpuPrecision !== 'limb') {
+      return true;
+    }
+    const maxValue =
+      ((LIMB_BASE / 2) * (LIMB_BASE ** LIMB_COUNT - 1)) /
+      (LIMB_BASE - 1) /
+      (LIMB_BASE ** activeLimbProfile.fractional);
+    const ratio = width / height;
+    const xMin = nav.x - (BASE_NUMBER_RANGE * ratio) / nav.z;
+    const xMax = nav.x + (BASE_NUMBER_RANGE * ratio) / nav.z;
+    const yMin = nav.y - BASE_NUMBER_RANGE / nav.z;
+    const yMax = nav.y + BASE_NUMBER_RANGE / nav.z;
+    const maxAbs = Math.max(
+      Math.abs(xMin),
+      Math.abs(xMax),
+      Math.abs(yMin),
+      Math.abs(yMax)
+    );
+    return maxAbs <= maxValue;
+  }, [activeLimbProfile.fractional, height, nav.x, nav.y, nav.z, settings.gpuPrecision, width]);
+
+  const gpuEligible = useMemo(
+    () =>
+      gpuAvailable &&
+      settings.colourMode !== 'distribution' &&
+      (settings.gpuPrecision !== 'limb' || (gpuSupportsLimb && limbProfileAvailable)),
+    [
+      gpuAvailable,
+      settings.colourMode,
+      settings.gpuPrecision,
+      gpuSupportsLimb,
+      limbProfileAvailable,
+    ]
+  );
+  const useWebGL = useMemo(
+    () => settings.renderBackend === 'gpu' && gpuEligible,
+    [gpuEligible, settings.renderBackend]
+  );
+  const useGpuCanvas = useMemo(
+    () => useWebGL || settings.renderBackend === 'gpu',
+    [useWebGL, settings.renderBackend]
+  );
+  const gpuError = useMemo(() => {
+    if (settings.renderBackend !== 'gpu') {
+      return null;
+    }
+    if (!gpuAvailable) {
+      return 'GPU unavailable';
+    }
+    if (settings.colourMode === 'distribution') {
+      return 'GPU does not support distribution colouring';
+    }
+    if (settings.gpuPrecision === 'limb' && !gpuSupportsLimb) {
+      return 'GPU limb shaders unavailable';
+    }
+    if (settings.gpuPrecision === 'limb' && !limbProfileAvailable) {
+      return 'Limb profile unsupported';
+    }
+    if (settings.gpuPrecision === 'limb' && !limbRangeOk) {
+      return 'Limb profile too fine for view';
+    }
+    return null;
+  }, [
+    gpuAvailable,
+    gpuSupportsLimb,
+    limbProfileAvailable,
+    limbRangeOk,
+    settings.colourMode,
+    settings.gpuPrecision,
+    settings.renderBackend,
+  ]);
+  const renderModeLabel = useMemo(() => {
+    const baseLabel =
+      settings.gpuPrecision === 'limb'
+        ? `GPU-limb ${activeLimbProfile.label}`
+        : settings.gpuPrecision === 'double'
+          ? 'GPU-dd'
+          : 'GPU';
+    const gpuLabel = gpuPrecision === 'mediump' ? `${baseLabel}-med` : baseLabel;
+    if (settings.renderBackend === 'gpu' || useWebGL) {
+      return gpuLabel;
+    }
+    return 'CPU';
+  }, [
+    activeLimbProfile.label,
+    gpuPrecision,
+    settings.gpuPrecision,
+    settings.renderBackend,
+    useWebGL,
+  ]);
+
 
   useEffect(() => {
     navRef.current = nav;
@@ -287,7 +648,7 @@ const FractalCanvas = ({
       selectionRectRef.current = null;
       setSelectionRect(null);
     } else {
-      const canvas = canvasRef.current;
+      const canvas = useGpuCanvas ? glCanvasRef.current : canvasRef.current;
       if (dragStateRef.current.active && canvas && dragStateRef.current.pointerId !== null) {
         canvas.releasePointerCapture(dragStateRef.current.pointerId);
       }
@@ -305,7 +666,7 @@ const FractalCanvas = ({
         canvas.style.cursor = 'crosshair';
       }
     }
-  }, [interactionMode]);
+  }, [interactionMode, useGpuCanvas]);
 
   useEffect(() => {
     if (!dragStateRef.current.active) {
@@ -507,23 +868,6 @@ const FractalCanvas = ({
     return blended;
   }, [basePalette, smoothedPalette, settings.paletteSmoothness]);
 
-  const effectiveMaxIterations = useMemo(() => {
-    if (!settings.autoMaxIterations) {
-      return settings.maxIterations;
-    }
-    return Math.max(
-      settings.maxIterations,
-      Math.round(
-        settings.maxIterations + settings.autoIterationsScale * Math.log2(Math.max(1, nav.z))
-      )
-    );
-  }, [
-    nav.z,
-    settings.autoIterationsScale,
-    settings.autoMaxIterations,
-    settings.maxIterations,
-  ]);
-
   const canvasFilter = useMemo(() => {
     const filterParts: string[] = [];
     switch (settings.filterMode) {
@@ -549,10 +893,52 @@ const FractalCanvas = ({
     return filterParts.length > 0 ? filterParts.join(' ') : 'none';
   }, [settings.filterMode, settings.gaussianBlur, settings.hueRotate]);
 
-  const blockSteps = useMemo(
-    () => buildBlockSteps(settings.refinementStepsCount, settings.finalBlockSize),
-    [settings.refinementStepsCount, settings.finalBlockSize]
-  );
+  useEffect(() => {
+    if (!useWebGL) {
+      return;
+    }
+    const canvas = glCanvasRef.current;
+    const gl = glRef.current;
+    if (!canvas || !gl) {
+      return;
+    }
+    canvas.width = width;
+    canvas.height = height;
+    gl.viewport(0, 0, width, height);
+  }, [useWebGL, width, height]);
+
+  useEffect(() => {
+    if (!useWebGL) {
+      return;
+    }
+    const gl = glRef.current;
+    const paletteTexture = glPaletteTextureRef.current;
+    if (!gl || !paletteTexture) {
+      return;
+    }
+    const paletteData = new Uint8Array(palette.length * 4);
+    palette.forEach((colour, index) => {
+      const offset = index * 4;
+      paletteData[offset] = Math.min(255, Math.max(0, Math.round(colour[0])));
+      paletteData[offset + 1] = Math.min(255, Math.max(0, Math.round(colour[1])));
+      paletteData[offset + 2] = Math.min(255, Math.max(0, Math.round(colour[2])));
+      paletteData[offset + 3] = 255;
+    });
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, paletteTexture);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      palette.length,
+      1,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      paletteData
+    );
+    setPaletteRevision((value) => value + 1);
+  }, [useWebGL, palette]);
 
   const { x0, y0, xScale, yScale } = useMemo(() => {
     const ratio = width / height;
@@ -569,29 +955,451 @@ const FractalCanvas = ({
     };
   }, [nav.x, nav.y, nav.z, width, height]);
 
+  useEffect(() => {
+    if (!useWebGL) {
+      return;
+    }
+    const gl = glRef.current;
+    const useLimbProgram =
+      settings.gpuPrecision === 'limb' &&
+      limbProfileAvailable &&
+      glLimbProgramsRef.current.get(activeLimbProfile.id) &&
+      glLimbUniformsRef.current.get(activeLimbProfile.id);
+    const program = useLimbProgram
+      ? glLimbProgramsRef.current.get(activeLimbProfile.id)
+      : glProgramRef.current;
+    const uniforms = useLimbProgram
+      ? glLimbUniformsRef.current.get(activeLimbProfile.id)
+      : glUniformsRef.current;
+    if (!gl || !program || !uniforms || !glBufferRef.current) {
+      return;
+    }
+    const timerExt = glTimerExtRef.current;
+    if (timerExt && glTimerQueryRef.current && glTimerRafRef.current === null) {
+      glTimerRafRef.current = window.requestAnimationFrame(pollGpuTimer);
+    }
+    if (settings.gpuPrecision === 'limb' && !limbRangeOk) {
+      gl.clearColor(0, 0, 0, 1);
+      gl.clear(gl.COLOR_BUFFER_BIT);
+      setFinalRenderMs(null);
+      return;
+    }
+    const paletteTexture = glPaletteTextureRef.current;
+    if (!paletteTexture) {
+      return;
+    }
+    const maxIterations = Math.min(effectiveMaxIterations, GPU_MAX_ITERATIONS);
+    if (maxIterations <= 0 || palette.length === 0) {
+      return;
+    }
+
+    const pscale =
+      settings.colourMode === 'normalize' || settings.colourMode === 'distribution'
+        ? (palette.length - 1) / maxIterations
+        : settings.colourMode === 'cycle'
+          ? (palette.length - 1) / Math.max(1, settings.colourPeriod)
+          : (palette.length - 1) / MAX_PALETTE_ITERATIONS;
+    const colourModeIndex = settings.colourMode === 'cycle' ? 1 : settings.colourMode === 'fixed' ? 2 : 0;
+    const ditherStrength =
+      settings.filterMode === 'dither' ? Math.max(0, settings.ditherStrength) : 0;
+
+    const splitFloat = (value: number) => {
+      const hi = Math.fround(value);
+      return { hi, lo: value - hi };
+    };
+    const x0Split = splitFloat(x0);
+    const y0Split = splitFloat(y0);
+    const xScaleSplit = splitFloat(xScale);
+    const yScaleSplit = splitFloat(yScale);
+    const useLimb = settings.gpuPrecision === 'limb' && Boolean(useLimbProgram);
+    const x0Limb = useLimb ? buildLimbVectors(x0, activeLimbProfile.fractional) : null;
+    const y0Limb = useLimb ? buildLimbVectors(y0, activeLimbProfile.fractional) : null;
+    const xScaleLimb = useLimb
+      ? buildLimbVectors(xScale, activeLimbProfile.fractional)
+      : null;
+    const yScaleLimb = useLimb
+      ? buildLimbVectors(yScale, activeLimbProfile.fractional)
+      : null;
+
+    gl.useProgram(program);
+    let timerQueryStarted = false;
+    if (timerExt && !glTimerQueryRef.current) {
+      const query = timerExt.createQueryEXT();
+      if (query) {
+        timerExt.beginQueryEXT(timerExt.TIME_ELAPSED_EXT, query);
+        glTimerQueryRef.current = query;
+        timerQueryStarted = true;
+      }
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, glBufferRef.current);
+    gl.activeTexture(gl.TEXTURE0);
+    gl.bindTexture(gl.TEXTURE_2D, paletteTexture);
+    if (uniforms.resolution) {
+      gl.uniform2f(uniforms.resolution, width, height);
+    }
+    if (uniforms.x0) {
+      gl.uniform1f(uniforms.x0, x0);
+    }
+    if (uniforms.y0) {
+      gl.uniform1f(uniforms.y0, y0);
+    }
+    if (uniforms.xScale) {
+      gl.uniform1f(uniforms.xScale, xScale);
+    }
+    if (uniforms.yScale) {
+      gl.uniform1f(uniforms.yScale, yScale);
+    }
+    if (uniforms.x0LimbLo && x0Limb) {
+      gl.uniform4f(uniforms.x0LimbLo, ...x0Limb.lo);
+    }
+    if (uniforms.x0LimbMid && x0Limb) {
+      gl.uniform4f(uniforms.x0LimbMid, ...x0Limb.mid);
+    }
+    if (uniforms.x0LimbHi && x0Limb) {
+      gl.uniform4f(uniforms.x0LimbHi, ...x0Limb.hi);
+    }
+    if (uniforms.y0LimbLo && y0Limb) {
+      gl.uniform4f(uniforms.y0LimbLo, ...y0Limb.lo);
+    }
+    if (uniforms.y0LimbMid && y0Limb) {
+      gl.uniform4f(uniforms.y0LimbMid, ...y0Limb.mid);
+    }
+    if (uniforms.y0LimbHi && y0Limb) {
+      gl.uniform4f(uniforms.y0LimbHi, ...y0Limb.hi);
+    }
+    if (uniforms.xScaleLimbLo && xScaleLimb) {
+      gl.uniform4f(uniforms.xScaleLimbLo, ...xScaleLimb.lo);
+    }
+    if (uniforms.xScaleLimbMid && xScaleLimb) {
+      gl.uniform4f(uniforms.xScaleLimbMid, ...xScaleLimb.mid);
+    }
+    if (uniforms.xScaleLimbHi && xScaleLimb) {
+      gl.uniform4f(uniforms.xScaleLimbHi, ...xScaleLimb.hi);
+    }
+    if (uniforms.yScaleLimbLo && yScaleLimb) {
+      gl.uniform4f(uniforms.yScaleLimbLo, ...yScaleLimb.lo);
+    }
+    if (uniforms.yScaleLimbMid && yScaleLimb) {
+      gl.uniform4f(uniforms.yScaleLimbMid, ...yScaleLimb.mid);
+    }
+    if (uniforms.yScaleLimbHi && yScaleLimb) {
+      gl.uniform4f(uniforms.yScaleLimbHi, ...yScaleLimb.hi);
+    }
+    if (uniforms.x0Hi) {
+      gl.uniform1f(uniforms.x0Hi, x0Split.hi);
+    }
+    if (uniforms.x0Lo) {
+      gl.uniform1f(uniforms.x0Lo, x0Split.lo);
+    }
+    if (uniforms.y0Hi) {
+      gl.uniform1f(uniforms.y0Hi, y0Split.hi);
+    }
+    if (uniforms.y0Lo) {
+      gl.uniform1f(uniforms.y0Lo, y0Split.lo);
+    }
+    if (uniforms.xScaleHi) {
+      gl.uniform1f(uniforms.xScaleHi, xScaleSplit.hi);
+    }
+    if (uniforms.xScaleLo) {
+      gl.uniform1f(uniforms.xScaleLo, xScaleSplit.lo);
+    }
+    if (uniforms.yScaleHi) {
+      gl.uniform1f(uniforms.yScaleHi, yScaleSplit.hi);
+    }
+    if (uniforms.yScaleLo) {
+      gl.uniform1f(uniforms.yScaleLo, yScaleSplit.lo);
+    }
+    if (uniforms.max) {
+      gl.uniform1f(uniforms.max, maxIterations);
+    }
+    if (uniforms.pscale) {
+      gl.uniform1f(uniforms.pscale, pscale);
+    }
+    if (uniforms.paletteSize) {
+      gl.uniform1f(uniforms.paletteSize, palette.length);
+    }
+    if (uniforms.colourMode) {
+      gl.uniform1f(uniforms.colourMode, colourModeIndex);
+    }
+    if (uniforms.smooth) {
+      gl.uniform1i(uniforms.smooth, settings.smooth ? 1 : 0);
+    }
+    if (uniforms.ditherStrength) {
+      gl.uniform1f(uniforms.ditherStrength, ditherStrength);
+    }
+    if (uniforms.algorithm) {
+      gl.uniform1f(uniforms.algorithm, resolveAlgorithmIndex(resolvedAlgorithm));
+    }
+    if (uniforms.useDouble) {
+      gl.uniform1f(
+        uniforms.useDouble,
+        settings.gpuPrecision === 'double' ? 1 : 0
+      );
+    }
+    if (uniforms.useLimb) {
+      gl.uniform1f(uniforms.useLimb, useLimb ? 1 : 0);
+    }
+    if (uniforms.julia) {
+      gl.uniform2f(uniforms.julia, DEFAULT_JULIA.real, DEFAULT_JULIA.imag);
+    }
+
+    gl.clearColor(0, 0, 0, 1);
+    gl.clear(gl.COLOR_BUFFER_BIT);
+    gl.drawArrays(gl.TRIANGLES, 0, 6);
+    if (timerQueryStarted && timerExt) {
+      timerExt.endQueryEXT(timerExt.TIME_ELAPSED_EXT);
+      if (glTimerRafRef.current === null) {
+        glTimerRafRef.current = window.requestAnimationFrame(pollGpuTimer);
+      }
+    } else if (!timerExt) {
+      setFinalRenderMs((value) => value ?? 0);
+    }
+
+    // Avoid disabling GPU based on sampled pixels; rely on shader compile/link success.
+  }, [
+    settings.renderBackend,
+    x0,
+    y0,
+    xScale,
+    yScale,
+    width,
+    height,
+    palette,
+    paletteRevision,
+    effectiveMaxIterations,
+    settings.colourMode,
+    settings.colourPeriod,
+    settings.filterMode,
+    settings.ditherStrength,
+    settings.smooth,
+    settings.gpuPrecision,
+    settings.gpuLimbProfile,
+    settings.renderBackend,
+    resolvedAlgorithm,
+    nav.z,
+    activeLimbProfile.id,
+    limbProfileAvailable,
+    limbRangeOk,
+    pollGpuTimer,
+  ]);
+
+  const blockSteps = useMemo(
+    () => buildBlockSteps(settings.refinementStepsCount, settings.finalBlockSize),
+    [settings.refinementStepsCount, settings.finalBlockSize]
+  );
+
+  const precisionEpsilon = useMemo(() => {
+    if (settings.renderBackend !== 'gpu') {
+      return Number.EPSILON;
+    }
+    if (settings.gpuPrecision === 'single') {
+      return Math.pow(2, -23);
+    }
+    if (settings.gpuPrecision === 'double') {
+      return Math.pow(2, -46);
+    }
+    const fractionalBits = activeLimbProfile.fractional * 10;
+    return Math.pow(2, -fractionalBits);
+  }, [activeLimbProfile.fractional, settings.gpuPrecision, settings.renderBackend]);
+
   const precisionWarning = useMemo(() => {
     const scale = Math.max(1, Math.abs(nav.x), Math.abs(nav.y));
-    const limit = Number.EPSILON * PRECISION_EPS_SCALE * scale;
+    const limit = precisionEpsilon * PRECISION_EPS_SCALE * scale;
     return xScale < limit || yScale < limit;
-  }, [nav.x, nav.y, xScale, yScale]);
+  }, [nav.x, nav.y, precisionEpsilon, xScale, yScale]);
 
   useEffect(() => {
     boundsRef.current = { x0, y0, xScale, yScale };
   }, [x0, y0, xScale, yScale]);
 
   useEffect(() => {
+    if (useGpuCanvas) {
+      contextRef.current = null;
+      return;
+    }
     if (canvasRef.current) {
       contextRef.current = canvasRef.current.getContext('2d');
     }
+  }, [useGpuCanvas]);
+
+  useEffect(() => {
+    const canvas = glCanvasRef.current;
+    if (!canvas) {
+      return;
+    }
+    const gl = canvas.getContext('webgl', {
+      preserveDrawingBuffer: true,
+      antialias: false,
+    });
+    if (!gl) {
+      setGpuAvailable(false);
+      setGpuSupportsLimb(false);
+      setGpuLimbProfiles([]);
+      setGpuPrecision(null);
+      return;
+    }
+    const baseProgramInfo = createProgram(gl, false);
+    const timerExt =
+      (gl.getExtension('EXT_disjoint_timer_query') as GpuTimerExt | null) ??
+      (gl.getExtension('EXT_disjoint_timer_query_webgl2') as GpuTimerExt | null);
+    if (!baseProgramInfo) {
+      setGpuAvailable(false);
+      setGpuSupportsLimb(false);
+      setGpuLimbProfiles([]);
+      setGpuPrecision(null);
+      return;
+    }
+    const limbProgramInfos = LIMB_PROFILES.map((profile) => ({
+      id: profile.id,
+      info: createProgram(gl, true, profile.fractional),
+    }));
+    const { program: baseProgram, precision } = baseProgramInfo;
+
+    const buffer = gl.createBuffer();
+    if (!buffer) {
+      setGpuAvailable(false);
+      return;
+    }
+    gl.bindBuffer(gl.ARRAY_BUFFER, buffer);
+    gl.bufferData(
+      gl.ARRAY_BUFFER,
+      new Float32Array([-1, -1, 1, -1, -1, 1, -1, 1, 1, -1, 1, 1]),
+      gl.STATIC_DRAW
+    );
+    const bindProgramBuffer = (program: WebGLProgram) => {
+      gl.useProgram(program);
+      const positionLocation = gl.getAttribLocation(program, 'a_position');
+      if (positionLocation !== -1) {
+        gl.enableVertexAttribArray(positionLocation);
+        gl.vertexAttribPointer(positionLocation, 2, gl.FLOAT, false, 0, 0);
+      }
+    };
+    bindProgramBuffer(baseProgram);
+    limbProgramInfos.forEach((entry) => {
+      if (entry.info) {
+        bindProgramBuffer(entry.info.program);
+      }
+    });
+
+    const paletteTexture = gl.createTexture();
+    if (!paletteTexture) {
+      setGpuAvailable(false);
+      return;
+    }
+    gl.bindTexture(gl.TEXTURE_2D, paletteTexture);
+    gl.pixelStorei(gl.UNPACK_ALIGNMENT, 1);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MIN_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_MAG_FILTER, gl.LINEAR);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_S, gl.CLAMP_TO_EDGE);
+    gl.texParameteri(gl.TEXTURE_2D, gl.TEXTURE_WRAP_T, gl.CLAMP_TO_EDGE);
+    gl.texImage2D(
+      gl.TEXTURE_2D,
+      0,
+      gl.RGBA,
+      1,
+      1,
+      0,
+      gl.RGBA,
+      gl.UNSIGNED_BYTE,
+      new Uint8Array([0, 0, 0, 255])
+    );
+
+    const buildUniforms = (program: WebGLProgram) => ({
+      resolution: gl.getUniformLocation(program, 'u_resolution'),
+      x0: gl.getUniformLocation(program, 'u_x0'),
+      y0: gl.getUniformLocation(program, 'u_y0'),
+      xScale: gl.getUniformLocation(program, 'u_xScale'),
+      yScale: gl.getUniformLocation(program, 'u_yScale'),
+      x0LimbLo: gl.getUniformLocation(program, 'u_x0_limb_lo'),
+      x0LimbMid: gl.getUniformLocation(program, 'u_x0_limb_mid'),
+      x0LimbHi: gl.getUniformLocation(program, 'u_x0_limb_hi'),
+      y0LimbLo: gl.getUniformLocation(program, 'u_y0_limb_lo'),
+      y0LimbMid: gl.getUniformLocation(program, 'u_y0_limb_mid'),
+      y0LimbHi: gl.getUniformLocation(program, 'u_y0_limb_hi'),
+      xScaleLimbLo: gl.getUniformLocation(program, 'u_xScale_limb_lo'),
+      xScaleLimbMid: gl.getUniformLocation(program, 'u_xScale_limb_mid'),
+      xScaleLimbHi: gl.getUniformLocation(program, 'u_xScale_limb_hi'),
+      yScaleLimbLo: gl.getUniformLocation(program, 'u_yScale_limb_lo'),
+      yScaleLimbMid: gl.getUniformLocation(program, 'u_yScale_limb_mid'),
+      yScaleLimbHi: gl.getUniformLocation(program, 'u_yScale_limb_hi'),
+      x0Hi: gl.getUniformLocation(program, 'u_x0_hi'),
+      x0Lo: gl.getUniformLocation(program, 'u_x0_lo'),
+      y0Hi: gl.getUniformLocation(program, 'u_y0_hi'),
+      y0Lo: gl.getUniformLocation(program, 'u_y0_lo'),
+      xScaleHi: gl.getUniformLocation(program, 'u_xScale_hi'),
+      xScaleLo: gl.getUniformLocation(program, 'u_xScale_lo'),
+      yScaleHi: gl.getUniformLocation(program, 'u_yScale_hi'),
+      yScaleLo: gl.getUniformLocation(program, 'u_yScale_lo'),
+      max: gl.getUniformLocation(program, 'u_max'),
+      pscale: gl.getUniformLocation(program, 'u_pscale'),
+      paletteSize: gl.getUniformLocation(program, 'u_paletteSize'),
+      colourMode: gl.getUniformLocation(program, 'u_colourMode'),
+      smooth: gl.getUniformLocation(program, 'u_smooth'),
+      ditherStrength: gl.getUniformLocation(program, 'u_ditherStrength'),
+      algorithm: gl.getUniformLocation(program, 'u_algorithm'),
+      useDouble: gl.getUniformLocation(program, 'u_useDouble'),
+      useLimb: gl.getUniformLocation(program, 'u_useLimb'),
+      julia: gl.getUniformLocation(program, 'u_julia'),
+      palette: gl.getUniformLocation(program, 'u_palette'),
+    });
+
+    const baseUniforms = buildUniforms(baseProgram);
+    const limbUniformsMap = new Map<LimbProfileId, { [key: string]: WebGLUniformLocation | null }>();
+    limbProgramInfos.forEach((entry) => {
+      if (entry.info) {
+        limbUniformsMap.set(entry.id, buildUniforms(entry.info.program));
+      }
+    });
+
+    const setPaletteSampler = (
+      program: WebGLProgram,
+      uniforms: { palette?: WebGLUniformLocation | null } | null
+    ) => {
+      const paletteLocation = uniforms?.palette;
+      if (!paletteLocation) {
+        return;
+      }
+      gl.useProgram(program);
+      gl.uniform1i(paletteLocation, 0);
+    };
+
+    setPaletteSampler(baseProgram, baseUniforms);
+    limbProgramInfos.forEach((entry) => {
+      const uniforms = limbUniformsMap.get(entry.id);
+      if (entry.info && uniforms) {
+        setPaletteSampler(entry.info.program, uniforms);
+      }
+    });
+
+    glRef.current = gl;
+    glTimerExtRef.current = timerExt;
+    glProgramRef.current = baseProgram;
+    glPaletteTextureRef.current = paletteTexture;
+    glBufferRef.current = buffer;
+    glUniformsRef.current = baseUniforms;
+    glLimbProgramsRef.current.clear();
+    limbProgramInfos.forEach((entry) => {
+      if (entry.info) {
+        glLimbProgramsRef.current.set(entry.id, entry.info.program);
+      }
+    });
+    glLimbUniformsRef.current = limbUniformsMap;
+    setGpuAvailable(true);
+    const availableLimbProfiles = limbProgramInfos
+      .filter((entry) => entry.info)
+      .map((entry) => entry.id);
+    setGpuSupportsLimb(availableLimbProfiles.length > 0);
+    setGpuLimbProfiles(availableLimbProfiles);
+    setGpuPrecision(precision);
   }, []);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
+    const canvas = useGpuCanvas ? glCanvasRef.current : canvasRef.current;
     if (!canvas) {
       return;
     }
     canvas.style.cursor = interactionMode === 'grab' ? 'grab' : 'crosshair';
-  }, [interactionMode]);
+  }, [interactionMode, useGpuCanvas]);
 
   useEffect(() => {
     const nextNav = parseNavFromLoc(loc, getDefaultView(resolvedAlgorithm));
@@ -704,12 +1512,18 @@ const FractalCanvas = ({
       moved: false,
     };
     const canvas = canvasRef.current;
+    const glCanvas = glCanvasRef.current;
+    const cursor = interactionModeRef.current === 'grab' ? 'grab' : 'crosshair';
     if (canvas) {
       canvas.style.transform = 'translate(0px, 0px)';
-      canvas.style.cursor = interactionMode === 'grab' ? 'grab' : 'crosshair';
+      canvas.style.cursor = cursor;
+    }
+    if (glCanvas) {
+      glCanvas.style.transform = 'translate(0px, 0px)';
+      glCanvas.style.cursor = cursor;
     }
     resetTilesRef.current = true;
-  }, [resetSignal, resolvedAlgorithm, interactionMode]);
+  }, [resetSignal, resolvedAlgorithm]);
 
   useEffect(() => {
     resetTilesRef.current = true;
@@ -728,6 +1542,7 @@ const FractalCanvas = ({
     settings.maxIterations,
     settings.paletteStops,
     settings.paletteSmoothness,
+    settings.renderBackend,
     settings.refinementStepsCount,
     settings.smooth,
     settings.tileSize,
@@ -744,6 +1559,14 @@ const FractalCanvas = ({
     }
     if (tile.inFlight || tile.stepIndex >= blockSteps.length) {
       return;
+    }
+
+    if (
+      tile.stepIndex === blockSteps.length - 1 &&
+      finalPassRef.current.renderId === renderId &&
+      finalPassRef.current.start === null
+    ) {
+      finalPassRef.current.start = performance.now();
     }
 
     const { max, smooth } = config;
@@ -902,10 +1725,15 @@ const FractalCanvas = ({
           (tile) => tile.stepIndex >= blockSteps.length
         );
         if (allComplete) {
-          setRendering(false);
           if (config.colourMode === 'distribution') {
             applyDistributionColouring(config);
           }
+          const timing = finalPassRef.current;
+          if (timing.renderId === config.renderId && timing.start !== null) {
+            setFinalRenderMs(Math.max(0, performance.now() - timing.start));
+            timing.start = null;
+          }
+          setRendering(false);
         }
       }
     },
@@ -913,6 +1741,12 @@ const FractalCanvas = ({
   );
 
   useEffect(() => {
+    if (useGpuCanvas) {
+      workersRef.current.forEach((worker) => worker.terminate());
+      workersRef.current = [];
+      workerIndexRef.current = 0;
+      return;
+    }
     const workers: Worker[] = [];
     for (let index = 0; index < workerCount; index += 1) {
       const worker = new Worker(
@@ -929,10 +1763,10 @@ const FractalCanvas = ({
     return () => {
       workers.forEach((worker) => worker.terminate());
     };
-  }, [handleWorkerMessage, workerCount]);
+  }, [handleWorkerMessage, workerCount, useGpuCanvas]);
 
   useEffect(() => {
-    const canvas = canvasRef.current;
+    const canvas = useGpuCanvas ? glCanvasRef.current : canvasRef.current;
     if (!canvas) {
       return;
     }
@@ -1150,6 +1984,19 @@ const FractalCanvas = ({
         return;
       }
 
+      if (useGpuCanvas) {
+        suppressClickRef.current = true;
+        const nextNav = {
+          x: drag.startNav.x - dx * drag.startScale.xScale,
+          y: drag.startNav.y - dy * drag.startScale.yScale,
+          z: drag.startNav.z,
+        };
+        displayNavRef.current = nextNav;
+        setDisplayNav(nextNav);
+        setNav(nextNav);
+        return;
+      }
+
       const canvasWidth = canvas.width;
       const canvasHeight = canvas.height;
       const regions = computeGapRegions(dx, dy, canvasWidth, canvasHeight);
@@ -1267,9 +2114,14 @@ const FractalCanvas = ({
       canvas.removeEventListener('click', handleClick);
       canvas.removeEventListener('wheel', handleWheel, wheelOptions);
     };
-  }, [computeSelectionRect, queueDisplayNavUpdate, queueSelectionRectUpdate]);
+  }, [computeSelectionRect, queueDisplayNavUpdate, queueSelectionRectUpdate, useGpuCanvas]);
 
   useEffect(() => {
+    if (settings.renderBackend === 'gpu') {
+      setRendering(false);
+      finalPassRef.current = { renderId: null, start: null };
+      return;
+    }
     const ctx = contextRef.current;
     const workers = workersRef.current;
 
@@ -1397,6 +2249,8 @@ const FractalCanvas = ({
 
     const renderId = renderIdRef.current + 1;
     renderIdRef.current = renderId;
+    finalPassRef.current = { renderId, start: null };
+    setFinalRenderMs(null);
     distributionAppliedRef.current = false;
 
     const smooth = settings.smooth;
@@ -1453,16 +2307,24 @@ const FractalCanvas = ({
     xScale,
     y0,
     yScale,
+    settings.renderBackend,
   ]);
 
   return (
-    <div style={{ width, height }} className="bg-black">
+    <div style={{ width, height }} className="relative bg-black">
       <canvas
         ref={canvasRef}
         width={width}
         height={height}
         style={{ filter: canvasFilter }}
-        className="block touch-none bg-black"
+        className={`absolute inset-0 touch-none bg-black ${useGpuCanvas ? 'hidden' : ''}`}
+      />
+      <canvas
+        ref={glCanvasRef}
+        width={width}
+        height={height}
+        style={{ filter: canvasFilter }}
+        className={`absolute inset-0 touch-none bg-black ${useGpuCanvas ? '' : 'hidden'}`}
       />
       {selectionRect && (
         <div
@@ -1480,6 +2342,9 @@ const FractalCanvas = ({
         isRendering={isRendering}
         maxIterations={effectiveMaxIterations}
         precisionWarning={precisionWarning}
+        renderMode={renderModeLabel}
+        finalRenderMs={finalRenderMs}
+        gpuError={gpuError}
       />
     </div>
   );

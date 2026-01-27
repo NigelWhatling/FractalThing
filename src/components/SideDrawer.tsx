@@ -22,6 +22,7 @@ import type { RenderSettings } from '../state/settings';
 type SideDrawerProps = {
   settings: RenderSettings;
   onUpdateSettings: (payload: Partial<RenderSettings>) => void;
+  onResetSettings: () => void;
   algorithm: FractalAlgorithm;
   onChangeAlgorithm: (algorithm: FractalAlgorithm) => void;
   theme: 'light' | 'dark';
@@ -56,6 +57,20 @@ const filterOptions = [
   { value: 'vivid', label: 'Vivid' },
   { value: 'mono', label: 'Mono' },
   { value: 'dither', label: 'Dither (banding)' },
+];
+
+const rendererOptions = [
+  { value: 'cpu', label: 'CPU (workers)' },
+  { value: 'gpu-single', label: 'GPU single (fast)' },
+  { value: 'gpu-double', label: 'GPU double (slow, higher precision)' },
+  { value: 'gpu-limb', label: 'GPU multi-limb (very slow, highest precision)' },
+];
+
+const limbProfileOptions = [
+  { value: 'balanced', label: 'Balanced (40-bit fractional)' },
+  { value: 'high', label: 'High (60-bit fractional)' },
+  { value: 'extreme', label: 'Extreme (70-bit fractional)' },
+  { value: 'ultra', label: 'Ultra (80-bit fractional)' },
 ];
 
 type LabelWithHelpProps = {
@@ -114,6 +129,7 @@ const Section = ({
 const SideDrawer = ({
   settings,
   onUpdateSettings,
+  onResetSettings,
   algorithm,
   onChangeAlgorithm,
   theme,
@@ -237,8 +253,10 @@ const SideDrawer = ({
     if (!value) {
       return defaults;
     }
+    const numberPattern = '-?\\d+(?:\\.\\d+)?(?:e[-+]?\\d+)?';
     const matches = new RegExp(
-      /@(-?\d+(?:\.\d+)?),(-?\d+(?:\.\d+)?)(?:x(\d+(?:\.\d+)?))?/i,
+      `@(${numberPattern}),(${numberPattern})(?:x(${numberPattern}))?`,
+      'i',
     ).exec(value);
     if (!matches) {
       return defaults;
@@ -508,6 +526,35 @@ const SideDrawer = ({
       paletteStops: preset.stops.map((stop) => ({ ...stop })),
     });
     setActivePresetId(preset.id);
+  };
+
+  const currentRendererValue =
+    settings.renderBackend === 'cpu'
+      ? 'cpu'
+      : settings.gpuPrecision === 'double'
+        ? 'gpu-double'
+        : settings.gpuPrecision === 'limb'
+          ? 'gpu-limb'
+          : 'gpu-single';
+
+  const handleRendererChange = (value: string) => {
+    switch (value) {
+      case 'cpu':
+        onUpdateSettings({ renderBackend: 'cpu' });
+        return;
+      case 'gpu-double':
+        onUpdateSettings({ renderBackend: 'gpu', gpuPrecision: 'double' });
+        return;
+      case 'gpu-limb':
+        onUpdateSettings({ renderBackend: 'gpu', gpuPrecision: 'limb' });
+        return;
+      case 'gpu-single':
+        onUpdateSettings({ renderBackend: 'gpu', gpuPrecision: 'single' });
+        return;
+      default:
+        onUpdateSettings({ renderBackend: 'cpu' });
+        return;
+    }
   };
 
   const handleSavePaletteAs = () => {
@@ -1679,6 +1726,89 @@ const SideDrawer = ({
                 </div>
               </Section>
 
+              <Section title='Experimental'>
+                <div className='space-y-2'>
+                  <LabelWithHelp
+                    label='Renderer'
+                    tooltip='Experimental GPU path. Multi-limb is slowest but highest precision. Distribution colouring is not supported on GPU.'
+                  />
+                  <div className='relative'>
+                    <select
+                      className='w-full appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+                      value={currentRendererValue}
+                      onChange={(event) => handleRendererChange(event.target.value)}
+                    >
+                      {rendererOptions.map((option) => (
+                        <option
+                          key={option.value}
+                          value={option.value}
+                          className='bg-white text-slate-900 dark:bg-slate-900 dark:text-white'
+                        >
+                          {option.label}
+                        </option>
+                      ))}
+                    </select>
+                    <svg
+                      className='pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-white/60'
+                      viewBox='0 0 24 24'
+                      fill='none'
+                    >
+                      <path
+                        d='M7 10l5 5 5-5'
+                        stroke='currentColor'
+                        strokeWidth='2'
+                        strokeLinecap='round'
+                        strokeLinejoin='round'
+                      />
+                    </svg>
+                  </div>
+                </div>
+
+                {settings.renderBackend === 'gpu' && settings.gpuPrecision === 'limb' && (
+                  <div className='space-y-2'>
+                    <LabelWithHelp
+                      label='Limb profile'
+                      tooltip='Controls how many fractional limbs are used. Higher values increase precision but reduce integer range.'
+                    />
+                    <div className='relative'>
+                      <select
+                        className='w-full appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+                        value={settings.gpuLimbProfile}
+                        onChange={(event) =>
+                          onUpdateSettings({
+                            gpuLimbProfile: event.target
+                              .value as RenderSettings['gpuLimbProfile'],
+                          })
+                        }
+                      >
+                        {limbProfileOptions.map((option) => (
+                          <option
+                            key={option.value}
+                            value={option.value}
+                            className='bg-white text-slate-900 dark:bg-slate-900 dark:text-white'
+                          >
+                            {option.label}
+                          </option>
+                        ))}
+                      </select>
+                      <svg
+                        className='pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-white/60'
+                        viewBox='0 0 24 24'
+                        fill='none'
+                      >
+                        <path
+                          d='M7 10l5 5 5-5'
+                          stroke='currentColor'
+                          strokeWidth='2'
+                          strokeLinecap='round'
+                          strokeLinejoin='round'
+                        />
+                      </svg>
+                    </div>
+                  </div>
+                )}
+              </Section>
+
               <Section title='Interface'>
                 <div className='space-y-3'>
                   <div className='flex items-center justify-between rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-3 dark:border-white/10 dark:bg-white/5'>
@@ -1735,6 +1865,15 @@ const SideDrawer = ({
                       />
                     </button>
                   </div>
+                </div>
+                <div>
+                  <button
+                    type='button'
+                    className='w-full rounded-xl border border-slate-200/70 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 focus:outline-none focus:ring-2 focus:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
+                    onClick={onResetSettings}
+                  >
+                    Reset to defaults
+                  </button>
                 </div>
               </Section>
             </div>
