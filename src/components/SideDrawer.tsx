@@ -17,6 +17,7 @@ import {
   type FractalAlgorithm,
 } from '../util/fractals';
 import { BUILTIN_PALETTES, type PalettePreset } from '../util/palettes';
+import { APP_BUILD_TIME, formatBuildTimestamp, getVersionLabel } from '../util/version';
 import { START } from '../workers/WorkerCommands';
 import type { RenderSettings } from '../state/settings';
 
@@ -212,6 +213,8 @@ const SideDrawer = ({
   const palettePendingRef = useRef<{ index: number; startX: number } | null>(
     null,
   );
+  const versionLabel = getVersionLabel();
+  const buildLabel = formatBuildTimestamp(APP_BUILD_TIME);
   const paletteBarRef = useRef<HTMLDivElement | null>(null);
   const paletteModalRef = useRef<HTMLDivElement | null>(null);
   const previewCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -2067,6 +2070,22 @@ const SideDrawer = ({
                   </button>
                 </div>
               </Section>
+              <div className='flex items-center justify-between border-t border-slate-200/70 pt-3 text-[10px] text-slate-500 dark:border-white/10 dark:text-white/40'>
+                <div>
+                  <div className='font-semibold uppercase tracking-[0.18em]'>
+                    Version {versionLabel}
+                  </div>
+                  <div className='mt-1 uppercase tracking-[0.16em]'>Built {buildLabel}</div>
+                </div>
+                <a
+                  href='https://github.com/NigelWhatling/FractalThing'
+                  target='_blank'
+                  rel='noreferrer'
+                  className='touch-manipulation rounded-lg border border-slate-200/70 bg-white px-2.5 py-1.5 text-[10px] font-semibold uppercase tracking-[0.18em] text-slate-600 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5 dark:text-white/60 dark:hover:bg-white/10'
+                >
+                  GitHub
+                </a>
+              </div>
             </div>
           </div>
         </aside>
@@ -2426,6 +2445,7 @@ const SideDrawer = ({
           </div>
         </div>
       )}
+
     </>
   );
 };

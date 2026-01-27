@@ -16,6 +16,12 @@ import {
   normaliseAlgorithm,
   type FractalAlgorithm,
 } from './util/fractals';
+import {
+  APP_BUILD_TIME,
+  APP_COMMIT,
+  APP_VERSION,
+  formatBuildTimestamp,
+} from './util/version';
 
 type WindowSize = {
   width: number;
@@ -267,6 +273,14 @@ const FractalRoute = () => {
 };
 
 const App = () => {
+  useEffect(() => {
+    const buildLabel = formatBuildTimestamp(APP_BUILD_TIME);
+    const commitLabel = APP_COMMIT === 'unknown' ? 'unknown' : APP_COMMIT;
+    console.info(
+      `[FractalThing] Version ${APP_VERSION} (${commitLabel}) built ${buildLabel}`
+    );
+  }, []);
+
   return (
     <BrowserRouter>
       <Routes>

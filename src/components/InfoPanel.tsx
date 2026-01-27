@@ -1,3 +1,5 @@
+import { APP_VERSION } from '../util/version';
+
 type InfoPanelProps = {
   nav: {
     x: number;
@@ -60,6 +62,14 @@ const InfoPanel = ({
             </span>
           )
         )}
+        <a
+          href="https://github.com/NigelWhatling/FractalThing"
+          target="_blank"
+          rel="noreferrer"
+          className="pointer-events-auto block text-[10px] uppercase tracking-[0.2em] text-white/60 transition hover:text-white/80"
+        >
+          {`FractalThing ${APP_VERSION}`}
+        </a>
       </div>
       <span
         className="text-right text-[10px] uppercase tracking-wider tabular-nums text-white/60"
