@@ -161,7 +161,18 @@ type LimbVectors = {
 
 const buildLimbVectors = (value: number, fractional: number): LimbVectors => {
   if (!Number.isFinite(value)) {
-    return { lo: [0, 0, 0, 0], hi: [0, 0, 0, 0] };
+    return {
+      lo: [0, 0, 0, 0],
+      mid: [0, 0, 0, 0],
+      hi: [0, 0, 0, 0],
+    };
+  }
+  if (value === 0) {
+    return {
+      lo: [0, 0, 0, 0],
+      mid: [0, 0, 0, 0],
+      hi: [0, 0, 0, 0],
+    };
   }
   const limbScale = LIMB_BASE ** fractional;
   let scaled = value * limbScale;
