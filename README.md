@@ -6,6 +6,10 @@ This is a little project that I'm building so that I can play with React things.
 
 It allows you to browse fractals. Just the Mandelbrot set at the moment. May add more later.
 
+...
+
+Fast forward a few years of neglect. I came back and went full vibe-coder on it. Things escalated quickly. Enjoy.
+
 ## Development
 
 This project uses Vite + React + TypeScript.
