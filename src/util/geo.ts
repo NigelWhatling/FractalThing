@@ -130,7 +130,7 @@ export const useGeo = (enabled = true): GeoInfo => {
       .catch(() => {
         geoRequest = null;
         if (cancelled) return;
-        setGeo({ status: 'ready', country: null, isEu: false });
+        // Keep status as pending when geo lookup fails to avoid defaulting to non-EU.
       });
 
     return () => {
