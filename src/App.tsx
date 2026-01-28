@@ -298,6 +298,10 @@ const AnalyticsTracker = () => {
   const location = useLocation();
   const measurementId = import.meta.env.VITE_GA_ID;
   const [enabled, setEnabled] = useState(() => isAnalyticsEnabled());
+  const shouldTrack = useMemo(
+    () => import.meta.env.PROD && Boolean(measurementId) && enabled,
+    [enabled, measurementId],
+  );
 
   useEffect(() => {
     const handleToggle = (event: Event) => {
@@ -311,21 +315,18 @@ const AnalyticsTracker = () => {
   }, []);
 
   useEffect(() => {
-    if (!import.meta.env.PROD || !measurementId) {
-      return;
-    }
-    if (!enabled) {
+    if (!shouldTrack || !measurementId) {
       return;
     }
     initAnalytics(measurementId);
     const path = `${location.pathname}${location.search}${location.hash}`;
     trackPageView(measurementId, path);
   }, [
-    enabled,
     location.hash,
     location.pathname,
     location.search,
     measurementId,
+    shouldTrack,
   ]);
 
   return null;
