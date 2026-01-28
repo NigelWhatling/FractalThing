@@ -591,7 +591,7 @@ const SideDrawer = ({
   };
 
   const handleSavePaletteAs = () => {
-    if (!('localStorage' in globalThis)) return false;
+    if (!('localStorage' in globalThis)) return;
     const initialName = paletteNameDraft.trim() || 'New palette';
     const promptValue = globalThis.prompt('Palette name', initialName);
     const name = promptValue?.trim() ?? '';
