@@ -44,7 +44,7 @@ const algorithmMap: Record<string, FractalAlgorithm> = {
   julia: 'julia',
   'burning-ship': 'burning-ship',
   burningship: 'burning-ship',
-  'burning_ship': 'burning-ship',
+  burning_ship: 'burning-ship',
   tricorn: 'tricorn',
   mandelbar: 'tricorn',
   'multibrot-3': 'multibrot-3',
@@ -52,12 +52,10 @@ const algorithmMap: Record<string, FractalAlgorithm> = {
   multibrot: 'multibrot-3',
 };
 
-export const normaliseAlgorithm = (
-  value?: string | null
-): FractalAlgorithm => {
+export const normaliseAlgorithm = (value?: string | null): FractalAlgorithm => {
   if (!value) {
     return DEFAULT_FRACTAL;
   }
-  const key = value.toLowerCase().replace(/[_\s]+/g, '-');
+  const key = value.toLowerCase().replaceAll(/[_\s]+/g, '-');
   return algorithmMap[key] ?? DEFAULT_FRACTAL;
 };

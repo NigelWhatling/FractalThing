@@ -230,8 +230,8 @@ const createProgram = (
   limbFractional = 4,
   limbCount = LIMB_COUNT
 ) => {
-  const precision =
-    gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT)?.precision > 0
+  const precision: 'highp' | 'mediump' =
+    (gl.getShaderPrecisionFormat(gl.FRAGMENT_SHADER, gl.HIGH_FLOAT)?.precision ?? 0) > 0
       ? 'highp'
       : 'mediump';
   const vertexShader = createShader(gl, gl.VERTEX_SHADER, GPU_VERTEX_SHADER);
