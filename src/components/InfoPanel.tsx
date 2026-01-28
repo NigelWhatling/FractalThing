@@ -85,18 +85,20 @@ const InfoPanel = ({
         <span>Z {formatValue(nav.z)}</span>
         <span>Max {formatIterations(maxIterations)}</span>
       </div>
-      <div className="text-center" aria-live="polite" aria-atomic="true">
-        {gpuError ? (
-          <span className="text-[10px] uppercase tracking-[0.18em] text-rose-200/90">
-            {gpuError}
-          </span>
-        ) : (
-          precisionWarning && (
-            <span className="text-[10px] uppercase tracking-[0.2em] text-amber-200/80">
-              Precision limit reached
+      <div className="text-center">
+        <div aria-live="polite" aria-atomic="true">
+          {gpuError ? (
+            <span className="text-[10px] uppercase tracking-[0.18em] text-rose-200/90">
+              {gpuError}
             </span>
-          )
-        )}
+          ) : (
+            precisionWarning && (
+              <span className="text-[10px] uppercase tracking-[0.2em] text-amber-200/80">
+                Precision limit reached
+              </span>
+            )
+          )}
+        </div>
         <a
           href="https://github.com/NigelWhatling/FractalThing"
           target="_blank"

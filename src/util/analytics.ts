@@ -3,20 +3,46 @@ const ANALYTICS_PREF_KEY = 'fractal:analytics';
 const ANALYTICS_CONSENT_KEY = 'fractal:analytics-consent';
 const MEASUREMENT_ID_REGEX = /^G-[A-Z0-9]{6,}$/i;
 
-const isValidMeasurementId = (measurementId: string) =>
+export const isValidAnalyticsMeasurementId = (measurementId: string) =>
   MEASUREMENT_ID_REGEX.test(measurementId);
 
+const safeGetItem = (key: string): string | null | undefined => {
+  if (!('localStorage' in globalThis)) return undefined;
+  try {
+    return globalThis.localStorage.getItem(key);
+  } catch {
+    return undefined;
+  }
+};
+
+const safeSetItem = (key: string, value: string) => {
+  if (!('localStorage' in globalThis)) return;
+  try {
+    globalThis.localStorage.setItem(key, value);
+  } catch {
+    // ignore
+  }
+};
+
+const safeRemoveItem = (key: string) => {
+  if (!('localStorage' in globalThis)) return;
+  try {
+    globalThis.localStorage.removeItem(key);
+  } catch {
+    // ignore
+  }
+};
+
 export const isAnalyticsEnabled = () => {
-  if (!('localStorage' in globalThis)) return false;
-  const stored = globalThis.localStorage.getItem(ANALYTICS_PREF_KEY);
-  if (!stored) return true;
+  const stored = safeGetItem(ANALYTICS_PREF_KEY);
+  if (stored === undefined) return false;
+  if (stored === null) return true;
   return stored !== 'off';
 };
 
 export const setAnalyticsEnabled = (enabled: boolean) => {
-  if (!('localStorage' in globalThis)) return;
   // Disabling analytics stops future events but does not unload GA for the current session.
-  globalThis.localStorage.setItem(ANALYTICS_PREF_KEY, enabled ? 'on' : 'off');
+  safeSetItem(ANALYTICS_PREF_KEY, enabled ? 'on' : 'off');
   globalThis.dispatchEvent(
     new CustomEvent('fractal-analytics-change', { detail: { enabled } }),
   );
@@ -25,18 +51,16 @@ export const setAnalyticsEnabled = (enabled: boolean) => {
 export type AnalyticsConsent = 'yes' | 'no' | 'unset';
 
 export const getAnalyticsConsent = (): AnalyticsConsent => {
-  if (!('localStorage' in globalThis)) return 'unset';
-  const stored = globalThis.localStorage.getItem(ANALYTICS_CONSENT_KEY);
+  const stored = safeGetItem(ANALYTICS_CONSENT_KEY);
+  if (stored === undefined || stored === null) return 'unset';
   return stored === 'yes' || stored === 'no' ? stored : 'unset';
 };
 
 export const setAnalyticsConsent = (consent: AnalyticsConsent) => {
-  if (!('localStorage' in globalThis)) return;
-
   if (consent === 'unset') {
-    globalThis.localStorage.removeItem(ANALYTICS_CONSENT_KEY);
+    safeRemoveItem(ANALYTICS_CONSENT_KEY);
   } else {
-    globalThis.localStorage.setItem(ANALYTICS_CONSENT_KEY, consent);
+    safeSetItem(ANALYTICS_CONSENT_KEY, consent);
   }
 
   globalThis.dispatchEvent(
@@ -55,7 +79,7 @@ const ensureGtag = () => {
 export const initAnalytics = (measurementId: string) => {
   if (
     !measurementId ||
-    !isValidMeasurementId(measurementId) ||
+    !isValidAnalyticsMeasurementId(measurementId) ||
     analyticsInitialized ||
     typeof document === 'undefined' ||
     !isAnalyticsEnabled()
@@ -83,7 +107,7 @@ export const initAnalytics = (measurementId: string) => {
 export const trackPageView = (measurementId: string, pagePath: string) => {
   if (
     !measurementId ||
-    !isValidMeasurementId(measurementId) ||
+    !isValidAnalyticsMeasurementId(measurementId) ||
     globalThis.document === undefined ||
     !globalThis.gtag ||
     !isAnalyticsEnabled() ||

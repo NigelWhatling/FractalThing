@@ -2,6 +2,7 @@ import { useEffect, useMemo, useState } from 'react';
 import {
   getAnalyticsConsent,
   isAnalyticsEnabled,
+  isValidAnalyticsMeasurementId,
   setAnalyticsConsent,
   setAnalyticsEnabled,
   type AnalyticsConsent,
@@ -13,13 +14,16 @@ const ANALYTICS_KEY = 'fractal:analytics';
 
 const CookieConsentBanner = () => {
   const measurementId = import.meta.env.VITE_GA_ID;
-  const geo = useGeo(Boolean(measurementId));
+  const hasValidMeasurementId = Boolean(
+    measurementId && isValidAnalyticsMeasurementId(measurementId),
+  );
   const [consent, setConsentState] = useState<AnalyticsConsent>(() =>
     getAnalyticsConsent(),
   );
   const [analyticsEnabled, setAnalyticsEnabledState] = useState(() =>
     isAnalyticsEnabled(),
   );
+  const geo = useGeo(hasValidMeasurementId && analyticsEnabled && consent === 'unset');
 
   useEffect(() => {
     const handleToggle = (event: Event) => {
@@ -50,12 +54,12 @@ const CookieConsentBanner = () => {
   }, []);
 
   const shouldShow = useMemo(() => {
-    if (!measurementId) return false;
+    if (!hasValidMeasurementId) return false;
     if (geo.status !== 'ready') return false;
     if (!geo.isEu) return false;
     if (!analyticsEnabled) return false;
     return consent === 'unset';
-  }, [analyticsEnabled, consent, geo.isEu, geo.status, measurementId]);
+  }, [analyticsEnabled, consent, geo.isEu, geo.status, hasValidMeasurementId]);
 
   if (!shouldShow) {
     return null;

@@ -1,3 +1,5 @@
+/// <reference lib="webworker" />
+
 import {
   START,
   STOP,
@@ -5,7 +7,7 @@ import {
   type WorkerResponseMessage,
 } from './WorkerCommands';
 
-const workerContext = globalThis as DedicatedWorkerGlobalScope;
+const workerContext = globalThis as unknown as DedicatedWorkerGlobalScope;
 
 workerContext.addEventListener(
   'message',

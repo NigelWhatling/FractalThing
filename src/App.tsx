@@ -40,6 +40,7 @@ import {
   getAnalyticsConsent,
   initAnalytics,
   isAnalyticsEnabled,
+  isValidAnalyticsMeasurementId,
   trackPageView,
   type AnalyticsConsent,
 } from './util/analytics';
@@ -301,19 +302,28 @@ const FractalRoute = () => {
 const AnalyticsTracker = () => {
   const location = useLocation();
   const measurementId = import.meta.env.VITE_GA_ID;
+  const validMeasurementId =
+    measurementId && isValidAnalyticsMeasurementId(measurementId)
+      ? measurementId
+      : null;
   const [enabled, setEnabled] = useState(() => isAnalyticsEnabled());
   const [consent, setConsent] = useState<AnalyticsConsent>(() =>
     getAnalyticsConsent(),
   );
-  const geo = useGeo(Boolean(measurementId));
+  const needsGeo =
+    import.meta.env.PROD && Boolean(validMeasurementId) && enabled && consent === 'unset';
+  const geo = useGeo(needsGeo);
   const shouldTrack = useMemo(
-    () =>
-      import.meta.env.PROD &&
-      Boolean(measurementId) &&
-      enabled &&
-      geo.status === 'ready' &&
-      (!geo.isEu || consent === 'yes'),
-    [consent, enabled, geo.isEu, geo.status, measurementId],
+    () => {
+      if (!import.meta.env.PROD) return false;
+      if (!validMeasurementId) return false;
+      if (!enabled) return false;
+      if (consent === 'yes') return true;
+      if (consent === 'no') return false;
+      if (geo.status !== 'ready') return false;
+      return !geo.isEu;
+    },
+    [consent, enabled, geo.isEu, geo.status, validMeasurementId],
   );
 
   useEffect(() => {
@@ -351,19 +361,25 @@ const AnalyticsTracker = () => {
   }, []);
 
   useEffect(() => {
-    if (!shouldTrack || !measurementId) {
+    if (!shouldTrack || !validMeasurementId) {
       return;
     }
-    initAnalytics(measurementId);
-  }, [measurementId, shouldTrack]);
+    initAnalytics(validMeasurementId);
+  }, [shouldTrack, validMeasurementId]);
 
   useEffect(() => {
-    if (!shouldTrack || !measurementId) {
+    if (!shouldTrack || !validMeasurementId) {
       return;
     }
     const path = `${location.pathname}${location.search}${location.hash}`;
-    trackPageView(measurementId, path);
-  }, [location.hash, location.pathname, location.search, measurementId, shouldTrack]);
+    trackPageView(validMeasurementId, path);
+  }, [
+    location.hash,
+    location.pathname,
+    location.search,
+    shouldTrack,
+    validMeasurementId,
+  ]);
 
   return null;
 };

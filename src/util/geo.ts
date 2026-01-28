@@ -11,51 +11,6 @@ export type GeoInfo = {
 const GEO_CACHE_KEY = 'fractal:geo';
 const GEO_CACHE_TTL_MS = 1000 * 60 * 60 * 24 * 7;
 
-const EU_EEA_UK_COUNTRIES = new Set([
-  // EU
-  'AT',
-  'BE',
-  'BG',
-  'HR',
-  'CY',
-  'CZ',
-  'DK',
-  'EE',
-  'FI',
-  'FR',
-  'DE',
-  'GR',
-  'HU',
-  'IE',
-  'IT',
-  'LV',
-  'LT',
-  'LU',
-  'MT',
-  'NL',
-  'PL',
-  'PT',
-  'RO',
-  'SK',
-  'SI',
-  'ES',
-  'SE',
-  // EEA (non-EU)
-  'IS',
-  'LI',
-  'NO',
-  // UK
-  'GB',
-  'UK',
-]);
-
-export const isEuEeaUkCountry = (country: string | null | undefined) => {
-  if (!country) return false;
-  const code = country.trim().toUpperCase();
-  if (code.length !== 2) return false;
-  return EU_EEA_UK_COUNTRIES.has(code);
-};
-
 const normaliseCountry = (value: unknown) => {
   if (!value || typeof value !== 'string') return null;
   const trimmed = value.trim();
@@ -69,15 +24,6 @@ const getDevOverride = (): GeoInfo | null => {
     const overrideCountry =
       normaliseCountry(import.meta.env.VITE_EU_COUNTRY) ?? 'DE';
     return { status: 'ready', country: overrideCountry, isEu: true };
-  }
-
-  const overrideCountry = normaliseCountry(import.meta.env.VITE_EU_COUNTRY);
-  if (overrideCountry) {
-    return {
-      status: 'ready',
-      country: overrideCountry,
-      isEu: isEuEeaUkCountry(overrideCountry),
-    };
   }
 
   return null;
@@ -135,12 +81,7 @@ const fetchGeo = async (): Promise<Omit<GeoInfo, 'status'>> => {
     isEu?: unknown;
   };
   const country = normaliseCountry(payload?.country) ?? null;
-  const isEu =
-    typeof payload?.isEu === 'boolean'
-      ? payload.isEu
-      : country
-        ? isEuEeaUkCountry(country)
-        : false;
+  const isEu = typeof payload?.isEu === 'boolean' ? payload.isEu : false;
   const result = { country, isEu };
   writeCachedGeo(result);
   return result;
@@ -148,15 +89,30 @@ const fetchGeo = async (): Promise<Omit<GeoInfo, 'status'>> => {
 
 export const useGeo = (enabled = true): GeoInfo => {
   const override = useMemo(() => getDevOverride(), []);
-  const cached = useMemo(() => readCachedGeo(), []);
-  const initial = useMemo<GeoInfo>(() => {
+  const [geo, setGeo] = useState<GeoInfo>(() => {
     if (!enabled) return { status: 'ready', country: null, isEu: false };
     if (override) return override;
+    const cached = readCachedGeo();
     if (cached) return { status: 'ready', ...cached };
     return { status: 'pending', country: null, isEu: false };
-  }, [cached, enabled, override]);
+  });
 
-  const [geo, setGeo] = useState<GeoInfo>(initial);
+  useEffect(() => {
+    if (!enabled) {
+      setGeo({ status: 'ready', country: null, isEu: false });
+      return;
+    }
+    if (override) {
+      setGeo(override);
+      return;
+    }
+    const cached = readCachedGeo();
+    if (cached) {
+      setGeo({ status: 'ready', ...cached });
+      return;
+    }
+    setGeo({ status: 'pending', country: null, isEu: false });
+  }, [enabled, override]);
 
   useEffect(() => {
     if (!enabled) return;

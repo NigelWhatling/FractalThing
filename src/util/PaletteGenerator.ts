@@ -43,7 +43,7 @@ const clamp = (value: number, min: number, max: number) =>
 
 const normaliseStops = (
   stops: PaletteStop[],
-): { position: number; rgb: number[] }[] => {
+): { position: number; rgb: [number, number, number] }[] => {
   const parsed = stops
     .map((stop) => {
       const position = clamp(Number(stop.position), 0, 1);
@@ -53,8 +53,9 @@ const normaliseStops = (
       }
       return { position, rgb };
     })
-    .filter((stop): stop is { position: number; rgb: number[] } =>
-      Boolean(stop),
+    .filter(
+      (stop): stop is { position: number; rgb: [number, number, number] } =>
+        Boolean(stop),
     );
 
   if (parsed.length < 2) {
@@ -63,7 +64,7 @@ const normaliseStops = (
 
   parsed.sort((a, b) => a.position - b.position);
 
-  const unique: { position: number; rgb: number[] }[] = [];
+  const unique: { position: number; rgb: [number, number, number] }[] = [];
   const epsilon = 0.0001;
   parsed.forEach((stop) => {
     const last = unique[unique.length - 1];
