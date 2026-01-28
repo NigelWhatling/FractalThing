@@ -1247,6 +1247,25 @@ const SideDrawer = ({
   }, [settings.refinementStepsCount]);
 
   useEffect(() => {
+    const handleToggle = (event: Event) => {
+      const detail = (event as CustomEvent<{ enabled: boolean }>).detail;
+      setAnalyticsEnabledState(detail?.enabled ?? isAnalyticsEnabled());
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key !== 'fractal:analytics') {
+        return;
+      }
+      setAnalyticsEnabledState(isAnalyticsEnabled());
+    };
+    globalThis.addEventListener('fractal-analytics-change', handleToggle);
+    globalThis.addEventListener('storage', handleStorage);
+    return () => {
+      globalThis.removeEventListener('fractal-analytics-change', handleToggle);
+      globalThis.removeEventListener('storage', handleStorage);
+    };
+  }, []);
+
+  useEffect(() => {
     const index = finalQualityOptions.findIndex(
       (option) => option.value === settings.finalBlockSize,
     );
