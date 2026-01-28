@@ -10,6 +10,7 @@ export const isAnalyticsEnabled = () => {
 
 export const setAnalyticsEnabled = (enabled: boolean) => {
   if (!('localStorage' in globalThis)) return;
+  // Disabling analytics stops future events but does not unload GA for the current session.
   globalThis.localStorage.setItem(ANALYTICS_PREF_KEY, enabled ? 'on' : 'off');
   globalThis.dispatchEvent(
     new CustomEvent('fractal-analytics-change', { detail: { enabled } }),
