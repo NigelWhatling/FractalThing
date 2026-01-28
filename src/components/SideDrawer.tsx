@@ -611,7 +611,7 @@ const SideDrawer = ({
       .trim()
       .toLowerCase()
       .replaceAll(/[^a-z0-9]+/g, '-')
-      .replaceAll(/(^-+)|(-+$)/g, '');
+      .replaceAll(/^-+|-+$/g, '');
     const id = `custom-${slug || 'palette'}-${Date.now()}`;
     const nextPreset: PalettePreset = {
       id,

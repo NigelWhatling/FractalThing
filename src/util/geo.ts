@@ -49,7 +49,8 @@ const EU_EEA_UK_COUNTRIES = new Set([
   'UK',
 ]);
 
-export const isEuEeaUkCountry = (country: string) => {
+export const isEuEeaUkCountry = (country: string | null | undefined) => {
+  if (!country) return false;
   const code = country.trim().toUpperCase();
   if (code.length !== 2) return false;
   return EU_EEA_UK_COUNTRIES.has(code);
@@ -83,9 +84,9 @@ const getDevOverride = (): GeoInfo | null => {
 };
 
 const readCachedGeo = (): Omit<GeoInfo, 'status'> | null => {
-  if (!('sessionStorage' in globalThis)) return null;
+  if (!('localStorage' in globalThis)) return null;
   try {
-    const raw = globalThis.sessionStorage.getItem(GEO_CACHE_KEY);
+    const raw = globalThis.localStorage.getItem(GEO_CACHE_KEY);
     if (!raw) return null;
     const parsed = JSON.parse(raw) as {
       at?: number;
@@ -104,9 +105,9 @@ const readCachedGeo = (): Omit<GeoInfo, 'status'> | null => {
 };
 
 const writeCachedGeo = (value: Omit<GeoInfo, 'status'>) => {
-  if (!('sessionStorage' in globalThis)) return;
+  if (!('localStorage' in globalThis)) return;
   try {
-    globalThis.sessionStorage.setItem(
+    globalThis.localStorage.setItem(
       GEO_CACHE_KEY,
       JSON.stringify({
         at: Date.now(),
@@ -127,7 +128,7 @@ const fetchGeo = async (): Promise<Omit<GeoInfo, 'status'>> => {
     cache: 'no-store',
   });
   if (!response.ok) {
-    return { country: null, isEu: false };
+    throw new Error('Geo request failed');
   }
   const payload = (await response.json()) as {
     country?: unknown;
@@ -163,13 +164,15 @@ export const useGeo = (enabled = true): GeoInfo => {
     if (geo.status !== 'pending') return;
     let cancelled = false;
 
-    geoRequest ??= fetchGeo().catch(() => ({ country: null, isEu: false }));
+    geoRequest ??= fetchGeo();
     geoRequest
       .then((result) => {
+        geoRequest = null;
         if (cancelled) return;
         setGeo({ status: 'ready', ...result });
       })
       .catch(() => {
+        geoRequest = null;
         if (cancelled) return;
         setGeo({ status: 'ready', country: null, isEu: false });
       });

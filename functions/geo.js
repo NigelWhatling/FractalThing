@@ -48,9 +48,8 @@ const getHeader = (headers, name) => {
 const normalizeCountry = (value) => {
   if (!value || typeof value !== 'string') return null;
   const trimmed = value.trim();
-  if (!trimmed) return null;
-  if (trimmed.length === 2) return trimmed.toUpperCase();
-  return trimmed.toUpperCase().slice(0, 2);
+  if (trimmed.length !== 2) return null;
+  return trimmed.toUpperCase();
 };
 
 exports.handler = async (event, context) => {
@@ -82,4 +81,3 @@ exports.handler = async (event, context) => {
     body: JSON.stringify({ country, isEu }),
   };
 };
-
