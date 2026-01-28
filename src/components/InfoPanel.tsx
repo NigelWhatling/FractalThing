@@ -1,3 +1,4 @@
+import { useLayoutEffect, useRef } from 'react';
 import { APP_VERSION } from '../util/version';
 
 type InfoPanelProps = {
@@ -34,6 +35,37 @@ const InfoPanel = ({
   finalRenderMs = null,
   gpuError = null,
 }: InfoPanelProps) => {
+  const rootRef = useRef<HTMLDivElement | null>(null);
+
+  useLayoutEffect(() => {
+    const node = rootRef.current;
+    if (!node || typeof document === 'undefined') {
+      return;
+    }
+
+    const update = () => {
+      const nextHeight = Math.max(0, Math.round(node.getBoundingClientRect().height));
+      document.documentElement.style.setProperty('--info-panel-height', `${nextHeight}px`);
+    };
+
+    update();
+
+    if (typeof ResizeObserver === 'undefined') {
+      globalThis.addEventListener('resize', update);
+      return () => {
+        globalThis.removeEventListener('resize', update);
+      };
+    }
+
+    const observer = new ResizeObserver(update);
+    observer.observe(node);
+    globalThis.addEventListener('resize', update);
+    return () => {
+      observer.disconnect();
+      globalThis.removeEventListener('resize', update);
+    };
+  }, []);
+
   const renderStatus = isRendering ? 'Rendering…' : 'Idle';
   const finalRenderLabel =
     finalRenderMs === null
@@ -43,7 +75,10 @@ const InfoPanel = ({
         : `${formatTime(finalRenderMs)} ms`;
 
   return (
-    <div className="pointer-events-none fixed bottom-0 left-0 right-0 z-50 grid grid-cols-[1fr_auto_1fr] items-center gap-3 bg-slate-950/60 backdrop-blur-sm px-3 py-1 text-[11px]">
+    <div
+      ref={rootRef}
+      className="pointer-events-none fixed bottom-0 left-0 right-0 z-50 grid grid-cols-[1fr_auto_1fr] items-center gap-3 bg-slate-950/60 backdrop-blur-sm px-3 py-1 text-[11px]"
+    >
       <div className="flex flex-wrap gap-3 font-mono text-[11px] tabular-nums text-white/70">
         <span>X {formatValue(nav.x)}</span>
         <span>Y {formatValue(nav.y)}</span>

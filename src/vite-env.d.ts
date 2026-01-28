@@ -6,6 +6,8 @@ declare const __APP_BUILD_TIME__: string;
 
 interface ImportMetaEnv {
   readonly VITE_GA_ID?: string;
+  readonly VITE_FORCE_EU?: string;
+  readonly VITE_EU_COUNTRY?: string;
 }
 
 declare var dataLayer: unknown[] | undefined;

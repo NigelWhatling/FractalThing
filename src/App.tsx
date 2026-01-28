@@ -19,6 +19,7 @@ import InteractionModeToggle, {
   type InteractionMode,
 } from './components/InteractionModeToggle';
 import SideDrawer from './components/SideDrawer';
+import CookieConsentBanner from './components/CookieConsentBanner';
 import {
   defaultSettings,
   settingsReducer,
@@ -36,10 +37,13 @@ import {
   formatBuildTimestamp,
 } from './util/version';
 import {
+  getAnalyticsConsent,
   initAnalytics,
   isAnalyticsEnabled,
   trackPageView,
+  type AnalyticsConsent,
 } from './util/analytics';
+import { useGeo } from './util/geo';
 
 type WindowSize = {
   width: number;
@@ -298,9 +302,18 @@ const AnalyticsTracker = () => {
   const location = useLocation();
   const measurementId = import.meta.env.VITE_GA_ID;
   const [enabled, setEnabled] = useState(() => isAnalyticsEnabled());
+  const [consent, setConsent] = useState<AnalyticsConsent>(() =>
+    getAnalyticsConsent(),
+  );
+  const geo = useGeo(Boolean(measurementId));
   const shouldTrack = useMemo(
-    () => import.meta.env.PROD && Boolean(measurementId) && enabled,
-    [enabled, measurementId],
+    () =>
+      import.meta.env.PROD &&
+      Boolean(measurementId) &&
+      enabled &&
+      geo.status === 'ready' &&
+      (!geo.isEu || consent === 'yes'),
+    [consent, enabled, geo.isEu, geo.status, measurementId],
   );
 
   useEffect(() => {
@@ -308,9 +321,32 @@ const AnalyticsTracker = () => {
       const detail = (event as CustomEvent<{ enabled: boolean }>).detail;
       setEnabled(detail?.enabled ?? isAnalyticsEnabled());
     };
+    const handleConsentToggle = (event: Event) => {
+      const detail = (event as CustomEvent<{ consent: AnalyticsConsent }>).detail;
+      setConsent(detail?.consent ?? getAnalyticsConsent());
+    };
+    const handleStorage = (event: StorageEvent) => {
+      if (event.key === 'fractal:analytics') {
+        setEnabled(isAnalyticsEnabled());
+        return;
+      }
+      if (event.key === 'fractal:analytics-consent') {
+        setConsent(getAnalyticsConsent());
+      }
+    };
     globalThis.addEventListener('fractal-analytics-change', handleToggle);
+    globalThis.addEventListener(
+      'fractal-analytics-consent-change',
+      handleConsentToggle,
+    );
+    globalThis.addEventListener('storage', handleStorage);
     return () => {
       globalThis.removeEventListener('fractal-analytics-change', handleToggle);
+      globalThis.removeEventListener(
+        'fractal-analytics-consent-change',
+        handleConsentToggle,
+      );
+      globalThis.removeEventListener('storage', handleStorage);
     };
   }, []);
 
@@ -344,6 +380,7 @@ const App = () => {
   return (
     <BrowserRouter>
       <AnalyticsTracker />
+      <CookieConsentBanner />
       <Routes>
         <Route path='/' element={<FractalRoute />} />
         <Route path='/:algorithm' element={<FractalRoute />} />

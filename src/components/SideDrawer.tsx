@@ -22,7 +22,12 @@ import {
   formatBuildTimestamp,
   getVersionLabel,
 } from '../util/version';
-import { isAnalyticsEnabled, setAnalyticsEnabled } from '../util/analytics';
+import {
+  getAnalyticsConsent,
+  isAnalyticsEnabled,
+  setAnalyticsConsent,
+  setAnalyticsEnabled,
+} from '../util/analytics';
 import { START } from '../workers/WorkerCommands';
 import type { RenderSettings } from '../state/settings';
 
@@ -2119,6 +2124,13 @@ const SideDrawer = ({
                       const next = !analyticsEnabled;
                       setAnalyticsEnabledState(next);
                       setAnalyticsEnabled(next);
+                      if (next) {
+                        setAnalyticsConsent('yes');
+                        return;
+                      }
+                      if (getAnalyticsConsent() === 'unset') {
+                        setAnalyticsConsent('no');
+                      }
                     }}
                   >
                     <LabelWithHelp

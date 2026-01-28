@@ -1,5 +1,6 @@
 let analyticsInitialized = false;
 const ANALYTICS_PREF_KEY = 'fractal:analytics';
+const ANALYTICS_CONSENT_KEY = 'fractal:analytics-consent';
 const MEASUREMENT_ID_REGEX = /^G-[A-Z0-9]{6,}$/i;
 
 const isValidMeasurementId = (measurementId: string) =>
@@ -18,6 +19,28 @@ export const setAnalyticsEnabled = (enabled: boolean) => {
   globalThis.localStorage.setItem(ANALYTICS_PREF_KEY, enabled ? 'on' : 'off');
   globalThis.dispatchEvent(
     new CustomEvent('fractal-analytics-change', { detail: { enabled } }),
+  );
+};
+
+export type AnalyticsConsent = 'yes' | 'no' | 'unset';
+
+export const getAnalyticsConsent = (): AnalyticsConsent => {
+  if (!('localStorage' in globalThis)) return 'unset';
+  const stored = globalThis.localStorage.getItem(ANALYTICS_CONSENT_KEY);
+  return stored === 'yes' || stored === 'no' ? stored : 'unset';
+};
+
+export const setAnalyticsConsent = (consent: AnalyticsConsent) => {
+  if (!('localStorage' in globalThis)) return;
+
+  if (consent === 'unset') {
+    globalThis.localStorage.removeItem(ANALYTICS_CONSENT_KEY);
+  } else {
+    globalThis.localStorage.setItem(ANALYTICS_CONSENT_KEY, consent);
+  }
+
+  globalThis.dispatchEvent(
+    new CustomEvent('fractal-analytics-consent-change', { detail: { consent } }),
   );
 };
 
