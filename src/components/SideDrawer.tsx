@@ -791,7 +791,9 @@ const SideDrawer = ({
     const parse = (hex: string) => {
       const value = hex.replace('#', '');
       const int = Number.parseInt(
-        value.length === 3 ? value.replaceAll(/./g, (c) => c + c) : value,
+        value.length === 3
+          ? value.split('').map((c) => c + c).join('')
+          : value,
         16,
       );
       return {
