@@ -1,5 +1,9 @@
 let analyticsInitialized = false;
 const ANALYTICS_PREF_KEY = 'fractal:analytics';
+const MEASUREMENT_ID_REGEX = /^G-[A-Z0-9]{6,}$/i;
+
+const isValidMeasurementId = (measurementId: string) =>
+  MEASUREMENT_ID_REGEX.test(measurementId);
 
 export const isAnalyticsEnabled = () => {
   if (!('localStorage' in globalThis)) return false;
@@ -29,6 +33,7 @@ const ensureGtag = () => {
 export const initAnalytics = (measurementId: string) => {
   if (
     !measurementId ||
+    !isValidMeasurementId(measurementId) ||
     analyticsInitialized ||
     typeof document === 'undefined' ||
     !isAnalyticsEnabled()
@@ -56,6 +61,7 @@ export const initAnalytics = (measurementId: string) => {
 export const trackPageView = (measurementId: string, pagePath: string) => {
   if (
     !measurementId ||
+    !isValidMeasurementId(measurementId) ||
     !(globalThis as any).gtag ||
     !isAnalyticsEnabled() ||
     !analyticsInitialized
