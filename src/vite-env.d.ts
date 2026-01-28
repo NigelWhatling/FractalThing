@@ -8,15 +8,5 @@ interface ImportMetaEnv {
   readonly VITE_GA_ID?: string;
 }
 
-interface ImportMeta {
-  readonly env: ImportMetaEnv;
-}
-
-declare global {
-  interface Window {
-    dataLayer: unknown[];
-    gtag?: (...args: unknown[]) => void;
-  }
-}
-
-export {};
+declare var dataLayer: unknown[] | undefined;
+declare var gtag: ((...args: unknown[]) => void) | undefined;

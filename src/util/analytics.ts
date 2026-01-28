@@ -22,12 +22,11 @@ export const setAnalyticsEnabled = (enabled: boolean) => {
 };
 
 const ensureGtag = () => {
-  (globalThis as any).dataLayer = (globalThis as any).dataLayer || [];
-  if (!(globalThis as any).gtag) {
-    (globalThis as any).gtag = (...args: unknown[]) => {
-      (globalThis as any).dataLayer.push(args);
-    };
-  }
+  if (typeof document === 'undefined') return;
+  globalThis.dataLayer ??= [];
+  globalThis.gtag ??= (...args: unknown[]) => {
+    globalThis.dataLayer?.push(args);
+  };
 };
 
 export const initAnalytics = (measurementId: string) => {
@@ -53,8 +52,8 @@ export const initAnalytics = (measurementId: string) => {
   }
 
   ensureGtag();
-  (globalThis as any).gtag('js', new Date());
-  (globalThis as any).gtag('config', measurementId, { send_page_view: false });
+  globalThis.gtag?.('js', new Date());
+  globalThis.gtag?.('config', measurementId, { send_page_view: false });
   analyticsInitialized = true;
 };
 
@@ -62,14 +61,15 @@ export const trackPageView = (measurementId: string, pagePath: string) => {
   if (
     !measurementId ||
     !isValidMeasurementId(measurementId) ||
-    !(globalThis as any).gtag ||
+    globalThis.document === undefined ||
+    !globalThis.gtag ||
     !isAnalyticsEnabled() ||
     !analyticsInitialized
   ) {
     return;
   }
 
-  (globalThis as any).gtag('event', 'page_view', {
+  globalThis.gtag('event', 'page_view', {
     page_path: pagePath,
     page_location: globalThis.location.href,
     page_title: document.title,

@@ -53,7 +53,8 @@ const normaliseStops = (
       }
       return { position, rgb };
     })
-    .filter(Boolean,
+    .filter((stop): stop is { position: number; rgb: number[] } =>
+      Boolean(stop),
     );
 
   if (parsed.length < 2) {

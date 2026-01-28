@@ -319,15 +319,15 @@ const AnalyticsTracker = () => {
       return;
     }
     initAnalytics(measurementId);
+  }, [measurementId, shouldTrack]);
+
+  useEffect(() => {
+    if (!shouldTrack || !measurementId) {
+      return;
+    }
     const path = `${location.pathname}${location.search}${location.hash}`;
     trackPageView(measurementId, path);
-  }, [
-    location.hash,
-    location.pathname,
-    location.search,
-    measurementId,
-    shouldTrack,
-  ]);
+  }, [location.hash, location.pathname, location.search, measurementId, shouldTrack]);
 
   return null;
 };
