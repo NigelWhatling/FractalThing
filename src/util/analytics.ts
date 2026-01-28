@@ -53,7 +53,12 @@ export const initAnalytics = (measurementId: string) => {
 };
 
 export const trackPageView = (measurementId: string, pagePath: string) => {
-  if (!measurementId || !(globalThis as any).gtag || !isAnalyticsEnabled()) {
+  if (
+    !measurementId ||
+    !(globalThis as any).gtag ||
+    !isAnalyticsEnabled() ||
+    !analyticsInitialized
+  ) {
     return;
   }
 
