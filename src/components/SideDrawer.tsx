@@ -17,7 +17,11 @@ import {
   type FractalAlgorithm,
 } from '../util/fractals';
 import { BUILTIN_PALETTES, type PalettePreset } from '../util/palettes';
-import { APP_BUILD_TIME, formatBuildTimestamp, getVersionLabel } from '../util/version';
+import {
+  APP_BUILD_TIME,
+  formatBuildTimestamp,
+  getVersionLabel,
+} from '../util/version';
 import { isAnalyticsEnabled, setAnalyticsEnabled } from '../util/analytics';
 import { START } from '../workers/WorkerCommands';
 import type { RenderSettings } from '../state/settings';
@@ -191,11 +195,9 @@ const SideDrawer = ({
     null,
   );
   const [customPalettes, setCustomPalettes] = useState<PalettePreset[]>(() => {
-    if (typeof window === 'undefined') {
-      return [];
-    }
+    if (!('localStorage' in globalThis)) return [];
     try {
-      const stored = window.localStorage.getItem(PALETTE_STORAGE_KEY);
+      const stored = globalThis.localStorage.getItem(PALETTE_STORAGE_KEY);
       if (!stored) {
         return [];
       }
@@ -232,7 +234,10 @@ const SideDrawer = ({
   const previewRenderIdRef = useRef(0);
   const previewAspectRatio = 1;
 
-  const resolvedAlgorithm = useMemo(() => normaliseAlgorithm(algorithm), [algorithm]);
+  const resolvedAlgorithm = useMemo(
+    () => normaliseAlgorithm(algorithm),
+    [algorithm],
+  );
   const [previewNavState, setPreviewNavState] = useState(() =>
     parseNavFromLoc(loc, getDefaultView(resolvedAlgorithm)),
   );
@@ -250,22 +255,24 @@ const SideDrawer = ({
     if (!editingPaletteId || editingPaletteId === 'current') {
       return settings.paletteStops;
     }
-    const preset = palettePresets.find((option) => option.id === editingPaletteId);
+    const preset = palettePresets.find(
+      (option) => option.id === editingPaletteId,
+    );
     return preset?.stops ?? settings.paletteStops;
   }, [editingPaletteId, palettePresets, settings.paletteStops]);
   const baselinePaletteName = useMemo(() => {
     if (!editingPaletteId || editingPaletteId === 'current') {
       return '';
     }
-    const preset = palettePresets.find((option) => option.id === editingPaletteId);
+    const preset = palettePresets.find(
+      (option) => option.id === editingPaletteId,
+    );
     return preset?.name ?? '';
   }, [editingPaletteId, palettePresets]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
-    }
-    window.localStorage.setItem(
+    if (!('localStorage' in globalThis)) return;
+    globalThis.localStorage.setItem(
       PALETTE_STORAGE_KEY,
       JSON.stringify(customPalettes),
     );
@@ -279,7 +286,7 @@ const SideDrawer = ({
     if (!value) {
       return defaults;
     }
-    const numberPattern = '-?\\d+(?:\\.\\d+)?(?:e[-+]?\\d+)?';
+    const numberPattern = String.raw`-?\d+(?:\.\d+)?(?:e[-+]?\d+)?`;
     const matches = new RegExp(
       `@(${numberPattern}),(${numberPattern})(?:x(${numberPattern}))?`,
       'i',
@@ -383,7 +390,8 @@ const SideDrawer = ({
     }
     return a.every(
       (stop, index) =>
-        stop.position === b[index]?.position && stop.colour === b[index]?.colour,
+        stop.position === b[index]?.position &&
+        stop.colour === b[index]?.colour,
     );
   };
 
@@ -391,7 +399,12 @@ const SideDrawer = ({
     () =>
       !stopsEqual(paletteStopsDraft, baselinePaletteStops) ||
       paletteNameDraft.trim() !== baselinePaletteName,
-    [paletteStopsDraft, baselinePaletteStops, paletteNameDraft, baselinePaletteName],
+    [
+      paletteStopsDraft,
+      baselinePaletteStops,
+      paletteNameDraft,
+      baselinePaletteName,
+    ],
   );
   const paletteNameValid = paletteNameDraft.trim().length > 0;
   const isPaletteNameTaken = (name: string, excludeId?: string | null) => {
@@ -530,12 +543,8 @@ const SideDrawer = ({
   };
 
   const handleResetPalette = () => {
-    updatePaletteStops(
-      baselinePaletteStops.map((stop) => ({ ...stop })),
-    );
-    setSelectedStopIndex(
-      baselinePaletteStops.length > 0 ? 0 : null,
-    );
+    updatePaletteStops(baselinePaletteStops.map((stop) => ({ ...stop })));
+    setSelectedStopIndex(baselinePaletteStops.length > 0 ? 0 : null);
     setPaletteNameDraft(baselinePaletteName);
   };
 
@@ -565,9 +574,6 @@ const SideDrawer = ({
 
   const handleRendererChange = (value: string) => {
     switch (value) {
-      case 'cpu':
-        onUpdateSettings({ renderBackend: 'cpu' });
-        return;
       case 'gpu-double':
         onUpdateSettings({ renderBackend: 'gpu', gpuPrecision: 'double' });
         return;
@@ -577,6 +583,7 @@ const SideDrawer = ({
       case 'gpu-single':
         onUpdateSettings({ renderBackend: 'gpu', gpuPrecision: 'single' });
         return;
+      case 'cpu':
       default:
         onUpdateSettings({ renderBackend: 'cpu' });
         return;
@@ -584,24 +591,22 @@ const SideDrawer = ({
   };
 
   const handleSavePaletteAs = () => {
-    if (typeof window === 'undefined') {
-      return;
-    }
+    if (!('localStorage' in globalThis)) return false;
     const initialName = paletteNameDraft.trim() || 'New palette';
-    const promptValue = window.prompt('Palette name', initialName);
+    const promptValue = globalThis.prompt('Palette name', initialName);
     const name = promptValue?.trim() ?? '';
     if (!name) {
       return;
     }
     if (isPaletteNameTaken(name)) {
-      window.alert('A palette with that name already exists.');
+      globalThis.alert('A palette with that name already exists.');
       return;
     }
     const slug = name
       .trim()
       .toLowerCase()
-      .replace(/[^a-z0-9]+/g, '-')
-      .replace(/^-+|-+$/g, '');
+      .replaceAll(/[^a-z0-9]+/g, '-')
+      .replaceAll(/(^-+)|(-+$)/g, '');
     const id = `custom-${slug || 'palette'}-${Date.now()}`;
     const nextPreset: PalettePreset = {
       id,
@@ -631,11 +636,8 @@ const SideDrawer = ({
     }
     const currentName = customPalettes[customIndex]?.name ?? '';
     const nextName = paletteNameDraft.trim() || currentName;
-    if (
-      nextName &&
-      isPaletteNameTaken(nextName, editingPaletteId)
-    ) {
-      window.alert('A palette with that name already exists.');
+    if (nextName && isPaletteNameTaken(nextName, editingPaletteId)) {
+      globalThis.alert('A palette with that name already exists.');
       return;
     }
     setCustomPalettes((current) =>
@@ -686,10 +688,10 @@ const SideDrawer = ({
 
   const handleDeletePalette = (paletteId: string) => {
     const preset = customPalettes.find((item) => item.id === paletteId);
-    if (!preset || typeof window === 'undefined') {
+    if (!preset || !('confirm' in globalThis)) {
       return;
     }
-    if (!window.confirm(`Delete "${preset.name}"?`)) {
+    if (!globalThis.confirm(`Delete "${preset.name}"?`)) {
       return;
     }
     setCustomPalettes((current) =>
@@ -789,7 +791,7 @@ const SideDrawer = ({
     const parse = (hex: string) => {
       const value = hex.replace('#', '');
       const int = Number.parseInt(
-        value.length === 3 ? value.replace(/./g, (c) => c + c) : value,
+        value.length === 3 ? value.replaceAll(/./g, (c) => c + c) : value,
         16,
       );
       return {
@@ -1019,19 +1021,17 @@ const SideDrawer = ({
         } else {
           rgb = [0, 0, 0];
         }
+      } else if (iterationValue < max) {
+        const scaled = pscale * iterationValue;
+        const baseRaw = Math.floor(scaled);
+        const paletteIndex = isCycle
+          ? ((baseRaw % paletteSize) + paletteSize) % paletteSize
+          : isFixed
+            ? Math.min(paletteSize - 1, Math.max(0, baseRaw))
+            : Math.min(paletteSize - 1, Math.max(0, baseRaw));
+        rgb = palette[paletteIndex];
       } else {
-        if (iterationValue < max) {
-          const scaled = pscale * iterationValue;
-          const baseRaw = Math.floor(scaled);
-          const paletteIndex = isCycle
-            ? ((baseRaw % paletteSize) + paletteSize) % paletteSize
-            : isFixed
-              ? Math.min(paletteSize - 1, Math.max(0, baseRaw))
-              : Math.min(paletteSize - 1, Math.max(0, baseRaw));
-          rgb = palette[paletteIndex];
-        } else {
-          rgb = [0, 0, 0];
-        }
+        rgb = [0, 0, 0];
       }
       imageData.data[idx++] = Math.floor(rgb[0]);
       imageData.data[idx++] = Math.floor(rgb[1]);
@@ -1107,8 +1107,12 @@ const SideDrawer = ({
     }
     const focusableSelector =
       'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
-    return Array.from(container.querySelectorAll<HTMLElement>(focusableSelector)).filter(
-      (element) => !element.hasAttribute('disabled') && element.getAttribute('aria-hidden') !== 'true',
+    return Array.from(
+      container.querySelectorAll<HTMLElement>(focusableSelector),
+    ).filter(
+      (element) =>
+        !element.hasAttribute('disabled') &&
+        element.getAttribute('aria-hidden') !== 'true',
     );
   };
 
@@ -1121,7 +1125,7 @@ const SideDrawer = ({
       return;
     }
     const focusables = getPaletteModalFocusables(container);
-    window.requestAnimationFrame(() => {
+    globalThis.requestAnimationFrame(() => {
       if (focusables.length > 0) {
         focusables[0].focus();
       } else {
@@ -1130,7 +1134,9 @@ const SideDrawer = ({
     });
   }, [paletteModalOpen]);
 
-  const handlePaletteModalKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+  const handlePaletteModalKeyDown = (
+    event: ReactKeyboardEvent<HTMLDivElement>,
+  ) => {
     if (event.key !== 'Tab') {
       return;
     }
@@ -1171,15 +1177,17 @@ const SideDrawer = ({
     addPaletteStopAt(ratio);
   };
 
-  const handlePaletteBarKeyDown = (event: ReactKeyboardEvent<HTMLDivElement>) => {
+  const handlePaletteBarKeyDown = (
+    event: ReactKeyboardEvent<HTMLDivElement>,
+  ) => {
     if (event.key !== 'Enter' && event.key !== ' ') {
       return;
     }
     event.preventDefault();
     const selectedPosition =
-      selectedStopIndex !== null
-        ? paletteStopsDraft[selectedStopIndex]?.position
-        : undefined;
+      selectedStopIndex === null
+        ? undefined
+        : paletteStopsDraft[selectedStopIndex]?.position;
     addPaletteStopAt(selectedPosition ?? 0.5);
   };
 
@@ -1204,7 +1212,10 @@ const SideDrawer = ({
     setPreviewNavState({ x: nextX, y: nextY, z: nextZ });
   };
 
-  const applyPreviewZoom = (event: MouseEvent<HTMLDivElement>, zoomIn: boolean) => {
+  const applyPreviewZoom = (
+    event: MouseEvent<HTMLDivElement>,
+    zoomIn: boolean,
+  ) => {
     const rect = event.currentTarget.getBoundingClientRect();
     const u = (event.clientX - rect.left) / rect.width;
     const v = (event.clientY - rect.top) / rect.height;
@@ -1273,7 +1284,12 @@ const SideDrawer = ({
             onClick={() => setOpen(false)}
             title='Close'
           >
-            <svg className='h-5 w-5' viewBox='0 0 24 24' fill='none' aria-hidden='true'>
+            <svg
+              className='h-5 w-5'
+              viewBox='0 0 24 24'
+              fill='none'
+              aria-hidden='true'
+            >
               <path
                 d='M18 6L6 18M6 6l12 12'
                 stroke='currentColor'
@@ -1303,7 +1319,7 @@ const SideDrawer = ({
                       value={resolvedAlgorithm}
                       onChange={(event) =>
                         onChangeAlgorithm(
-                          event.target.value as FractalAlgorithm
+                          event.target.value as FractalAlgorithm,
                         )
                       }
                     >
@@ -1364,7 +1380,9 @@ const SideDrawer = ({
                     id='iterations-range'
                     name='iterations'
                     aria-label={
-                      settings.autoMaxIterations ? 'Base iterations' : 'Max iterations'
+                      settings.autoMaxIterations
+                        ? 'Base iterations'
+                        : 'Max iterations'
                     }
                     onChange={(event) => {
                       const nextValue = Math.max(
@@ -1441,7 +1459,9 @@ const SideDrawer = ({
                       name='palette'
                       aria-label='Palette'
                       value={activePresetId}
-                      onChange={(event) => handlePresetChange(event.target.value)}
+                      onChange={(event) =>
+                        handlePresetChange(event.target.value)
+                      }
                     >
                       <option
                         value='current'
@@ -1486,7 +1506,9 @@ const SideDrawer = ({
                     className='touch-manipulation rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
                     onClick={() => {
                       setPaletteStopsDraft(settings.paletteStops);
-                      setSelectedStopIndex(settings.paletteStops.length > 0 ? 0 : null);
+                      setSelectedStopIndex(
+                        settings.paletteStops.length > 0 ? 0 : null,
+                      );
                       setEditingPaletteId(activePresetId);
                       const activePreset = palettePresets.find(
                         (preset) => preset.id === activePresetId,
@@ -1694,7 +1716,9 @@ const SideDrawer = ({
                     aria-checked={settings.smooth}
                     aria-label='Smooth colouring'
                     className='flex w-full touch-manipulation items-center justify-between rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5'
-                    onClick={() => onUpdateSettings({ smooth: !settings.smooth })}
+                    onClick={() =>
+                      onUpdateSettings({ smooth: !settings.smooth })
+                    }
                   >
                     <LabelWithHelp
                       label='Smooth colouring'
@@ -1920,7 +1944,9 @@ const SideDrawer = ({
                       name='renderer'
                       aria-label='Renderer'
                       value={currentRendererValue}
-                      onChange={(event) => handleRendererChange(event.target.value)}
+                      onChange={(event) =>
+                        handleRendererChange(event.target.value)
+                      }
                     >
                       {rendererOptions.map((option) => (
                         <option
@@ -1949,54 +1975,55 @@ const SideDrawer = ({
                   </div>
                 </div>
 
-                {settings.renderBackend === 'gpu' && settings.gpuPrecision === 'limb' && (
-                  <div className='space-y-2'>
-                    <LabelWithHelp
-                      label='Limb profile'
-                      tooltip='Controls how many fractional limbs are used. Higher values increase precision but reduce integer range.'
-                      htmlFor='limb-profile-select'
-                    />
-                    <div className='relative'>
-                      <select
-                        className='w-full touch-manipulation appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
-                        id='limb-profile-select'
-                        name='limb-profile'
-                        aria-label='Limb profile'
-                        value={settings.gpuLimbProfile}
-                        onChange={(event) =>
-                          onUpdateSettings({
-                            gpuLimbProfile: event.target
-                              .value as RenderSettings['gpuLimbProfile'],
-                          })
-                        }
-                      >
-                        {limbProfileOptions.map((option) => (
-                          <option
-                            key={option.value}
-                            value={option.value}
-                            className='bg-white text-slate-900 dark:bg-slate-900 dark:text-white'
-                          >
-                            {option.label}
-                          </option>
-                        ))}
-                      </select>
-                      <svg
-                        className='pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-white/60'
-                        viewBox='0 0 24 24'
-                        fill='none'
-                        aria-hidden='true'
-                      >
-                        <path
-                          d='M7 10l5 5 5-5'
-                          stroke='currentColor'
-                          strokeWidth='2'
-                          strokeLinecap='round'
-                          strokeLinejoin='round'
-                        />
-                      </svg>
+                {settings.renderBackend === 'gpu' &&
+                  settings.gpuPrecision === 'limb' && (
+                    <div className='space-y-2'>
+                      <LabelWithHelp
+                        label='Limb profile'
+                        tooltip='Controls how many fractional limbs are used. Higher values increase precision but reduce integer range.'
+                        htmlFor='limb-profile-select'
+                      />
+                      <div className='relative'>
+                        <select
+                          className='w-full touch-manipulation appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+                          id='limb-profile-select'
+                          name='limb-profile'
+                          aria-label='Limb profile'
+                          value={settings.gpuLimbProfile}
+                          onChange={(event) =>
+                            onUpdateSettings({
+                              gpuLimbProfile: event.target
+                                .value as RenderSettings['gpuLimbProfile'],
+                            })
+                          }
+                        >
+                          {limbProfileOptions.map((option) => (
+                            <option
+                              key={option.value}
+                              value={option.value}
+                              className='bg-white text-slate-900 dark:bg-slate-900 dark:text-white'
+                            >
+                              {option.label}
+                            </option>
+                          ))}
+                        </select>
+                        <svg
+                          className='pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-slate-400 dark:text-white/60'
+                          viewBox='0 0 24 24'
+                          fill='none'
+                          aria-hidden='true'
+                        >
+                          <path
+                            d='M7 10l5 5 5-5'
+                            stroke='currentColor'
+                            strokeWidth='2'
+                            strokeLinecap='round'
+                            strokeLinejoin='round'
+                          />
+                        </svg>
+                      </div>
                     </div>
-                  </div>
-                )}
+                  )}
               </Section>
 
               <Section title='Interface'>
@@ -2111,7 +2138,9 @@ const SideDrawer = ({
                   <div className='font-semibold uppercase tracking-[0.18em]'>
                     Version {versionLabel}
                   </div>
-                  <div className='mt-1 uppercase tracking-[0.16em]'>Built {buildLabel}</div>
+                  <div className='mt-1 uppercase tracking-[0.16em]'>
+                    Built {buildLabel}
+                  </div>
                   <a
                     href='https://github.com/NigelWhatling/FractalThing'
                     target='_blank'
@@ -2200,12 +2229,18 @@ const SideDrawer = ({
                           setSelectedStopIndex(stop.index);
                           return;
                         }
-                        if (event.key === 'Backspace' || event.key === 'Delete') {
+                        if (
+                          event.key === 'Backspace' ||
+                          event.key === 'Delete'
+                        ) {
                           event.preventDefault();
                           handleRemoveStop(stop.index);
                           return;
                         }
-                        if (event.key === 'ArrowLeft' || event.key === 'ArrowRight') {
+                        if (
+                          event.key === 'ArrowLeft' ||
+                          event.key === 'ArrowRight'
+                        ) {
                           event.preventDefault();
                           const step = event.shiftKey ? 0.05 : 0.01;
                           const direction = event.key === 'ArrowRight' ? 1 : -1;
@@ -2222,7 +2257,8 @@ const SideDrawer = ({
                   id='palette-editor-hint'
                   className='text-[11px] text-slate-500 dark:text-white/50'
                 >
-                  Click the bar to add a stop. Drag the dots or use arrow keys to reposition.
+                  Click the bar to add a stop. Drag the dots or use arrow keys
+                  to reposition.
                 </div>
 
                 <div className='rounded-xl border border-slate-200/70 bg-white/60 px-4 py-4 dark:border-white/10 dark:bg-white/5'>
@@ -2253,7 +2289,9 @@ const SideDrawer = ({
                             min={0}
                             max={100}
                             step={0.1}
-                            value={Math.round(selectedStop.position * 1000) / 10}
+                            value={
+                              Math.round(selectedStop.position * 1000) / 10
+                            }
                             id='palette-stop-position'
                             name='palette-stop-position'
                             inputMode='decimal'
@@ -2261,7 +2299,10 @@ const SideDrawer = ({
                             className='w-20 rounded-lg border border-slate-200/70 bg-white px-2 py-1 text-xs text-slate-700 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/80'
                             onChange={(event) => {
                               const nextValue = Number(event.target.value);
-                              const clamped = Math.min(100, Math.max(0, nextValue));
+                              const clamped = Math.min(
+                                100,
+                                Math.max(0, nextValue),
+                              );
                               handlePaletteStopChange(selectedStopIndex ?? 0, {
                                 position: clamped / 100,
                               });
@@ -2275,9 +2316,9 @@ const SideDrawer = ({
                           type='button'
                           className='self-start touch-manipulation rounded-md border border-slate-200/70 bg-white px-2 py-1 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none disabled:opacity-40 dark:border-white/10 dark:bg-white/5 dark:text-white/70 dark:hover:bg-white/10'
                           onClick={() =>
-                            selectedStopIndex !== null
-                              ? handleRemoveStop(selectedStopIndex)
-                              : null
+                            selectedStopIndex === null
+                              ? null
+                              : handleRemoveStop(selectedStopIndex)
                           }
                           disabled={paletteStopsDraft.length <= 2}
                         >
@@ -2306,7 +2347,9 @@ const SideDrawer = ({
                     autoComplete='off'
                     spellCheck={false}
                     value={paletteNameDraft}
-                    onChange={(event) => setPaletteNameDraft(event.target.value)}
+                    onChange={(event) =>
+                      setPaletteNameDraft(event.target.value)
+                    }
                     placeholder='Custom palette…'
                     className='w-full rounded-lg border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90'
                   />
@@ -2374,7 +2417,9 @@ const SideDrawer = ({
                         >
                           <div
                             className='h-5 w-28 shrink-0 rounded-lg border border-slate-200/70 bg-slate-200 dark:border-white/10 dark:bg-white/5'
-                            style={{ backgroundImage: getPaletteGradient(preset.stops) }}
+                            style={{
+                              backgroundImage: getPaletteGradient(preset.stops),
+                            }}
                             role='img'
                             aria-label={`${preset.name} palette preview`}
                           />
@@ -2481,7 +2526,6 @@ const SideDrawer = ({
           </div>
         </div>
       )}
-
     </>
   );
 };

@@ -1,4 +1,11 @@
-import { useCallback, useEffect, useMemo, useReducer, useRef, useState } from 'react';
+import {
+  useCallback,
+  useEffect,
+  useMemo,
+  useReducer,
+  useRef,
+  useState,
+} from 'react';
 import {
   BrowserRouter,
   Route,
@@ -8,9 +15,15 @@ import {
   useParams,
 } from 'react-router-dom';
 import FractalCanvas from './components/FractalCanvas';
-import InteractionModeToggle, { type InteractionMode } from './components/InteractionModeToggle';
+import InteractionModeToggle, {
+  type InteractionMode,
+} from './components/InteractionModeToggle';
 import SideDrawer from './components/SideDrawer';
-import { defaultSettings, settingsReducer, type RenderSettings } from './state/settings';
+import {
+  defaultSettings,
+  settingsReducer,
+  type RenderSettings,
+} from './state/settings';
 import {
   getDefaultView,
   normaliseAlgorithm,
@@ -22,7 +35,11 @@ import {
   APP_VERSION,
   formatBuildTimestamp,
 } from './util/version';
-import { initAnalytics, isAnalyticsEnabled, trackPageView } from './util/analytics';
+import {
+  initAnalytics,
+  isAnalyticsEnabled,
+  trackPageView,
+} from './util/analytics';
 
 type WindowSize = {
   width: number;
@@ -40,10 +57,8 @@ const getDefaultSettings = (): RenderSettings => ({
 
 const loadStoredSettings = (): RenderSettings => {
   const base = getDefaultSettings();
-  if (typeof window === 'undefined') {
-    return base;
-  }
-  const raw = window.localStorage.getItem(SETTINGS_STORAGE_KEY);
+  if (!('localStorage' in globalThis)) return base;
+  const raw = globalThis.localStorage.getItem(SETTINGS_STORAGE_KEY);
   if (!raw) {
     return base;
   }
@@ -65,9 +80,8 @@ const loadStoredSettings = (): RenderSettings => {
         : 'balanced';
     const paletteStops = Array.isArray(parsed.paletteStops)
       ? parsed.paletteStops
-          .filter(
-            (stop): stop is { position: number; colour: string } =>
-              Boolean(stop && typeof stop === 'object')
+          .filter((stop): stop is { position: number; colour: string } =>
+            Boolean(stop && typeof stop === 'object'),
           )
           .map((stop) => ({
             position: Number(stop.position),
@@ -81,7 +95,10 @@ const loadStoredSettings = (): RenderSettings => {
       renderBackend,
       gpuPrecision,
       gpuLimbProfile,
-      paletteStops: paletteStops && paletteStops.length >= 2 ? paletteStops : base.paletteStops,
+      paletteStops:
+        paletteStops && paletteStops.length >= 2
+          ? paletteStops
+          : base.paletteStops,
     };
   } catch (error) {
     console.warn('Failed to parse stored settings', error);
@@ -112,7 +129,7 @@ const useWindowSize = (): WindowSize => {
       if (resizeTimerRef.current !== null) {
         return;
       }
-      resizeTimerRef.current = window.setTimeout(() => {
+      resizeTimerRef.current = globalThis.setTimeout(() => {
         setSize({ width: window.innerWidth, height: window.innerHeight });
         resizeTimerRef.current = null;
       }, 200);
@@ -122,7 +139,7 @@ const useWindowSize = (): WindowSize => {
     return () => {
       window.removeEventListener('resize', handleResize);
       if (resizeTimerRef.current !== null) {
-        window.clearTimeout(resizeTimerRef.current);
+        globalThis.clearTimeout(resizeTimerRef.current);
       }
     };
   }, []);
@@ -138,9 +155,10 @@ const FractalRoute = () => {
   const [settings, dispatchSettings] = useReducer(
     settingsReducer,
     defaultSettings,
-    loadStoredSettings
+    loadStoredSettings,
   );
-  const [interactionMode, setInteractionMode] = useState<InteractionMode>('grab');
+  const [interactionMode, setInteractionMode] =
+    useState<InteractionMode>('grab');
   const [resetSignal, setResetSignal] = useState(0);
   const [uiOverlayOpen, setUiOverlayOpen] = useState(false);
   const locParam = useMemo(() => {
@@ -163,28 +181,28 @@ const FractalRoute = () => {
   }, [loc, location.search]);
   const resolvedAlgorithm = useMemo(
     () => normaliseAlgorithm(algorithm),
-    [algorithm]
+    [algorithm],
   );
   const [theme, setTheme] = useState<ThemeMode>(() => {
-    if (typeof window === 'undefined') {
-      return 'dark';
-    }
-    const stored = window.localStorage.getItem('theme');
+    if (!('localStorage' in globalThis)) return 'dark';
+    const stored = globalThis.localStorage.getItem('theme');
     if (stored === 'light' || stored === 'dark') {
       return stored;
     }
-    return window.matchMedia('(prefers-color-scheme: dark)').matches ? 'dark' : 'light';
+    return globalThis.matchMedia('(prefers-color-scheme: dark)').matches
+      ? 'dark'
+      : 'light';
   });
   const updateSettings = useCallback(
     (payload: Partial<typeof defaultSettings>) => {
       dispatchSettings({ type: 'update', payload });
     },
-    []
+    [],
   );
   const handleResetSettings = useCallback(() => {
     dispatchSettings({ type: 'update', payload: getDefaultSettings() });
-    if (typeof window !== 'undefined') {
-      window.localStorage.removeItem(SETTINGS_STORAGE_KEY);
+    if ('localStorage' in globalThis) {
+      globalThis.localStorage.removeItem(SETTINGS_STORAGE_KEY);
     }
   }, []);
 
@@ -200,9 +218,8 @@ const FractalRoute = () => {
       const nextPath = `/${nextAlgorithm}/${locString}`;
       const nextSearch = searchParams.toString();
       navigate(`${nextPath}${nextSearch ? `?${nextSearch}` : ''}`);
-      return;
     },
-    [location.search, navigate]
+    [location.search, navigate],
   );
 
   useEffect(() => {
@@ -210,28 +227,30 @@ const FractalRoute = () => {
     const isDark = theme === 'dark';
     root.classList.toggle('dark', isDark);
     root.style.colorScheme = theme;
-    window.localStorage.setItem('theme', theme);
+    globalThis.localStorage.setItem('theme', theme);
   }, [theme]);
 
   useEffect(() => {
-    if (typeof window === 'undefined') {
-      return;
+    if ('localStorage' in globalThis) {
+      globalThis.localStorage.setItem(
+        SETTINGS_STORAGE_KEY,
+        JSON.stringify(settings),
+      );
     }
-    window.localStorage.setItem(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
   }, [settings]);
 
   return (
     <>
       <a
-        href="#main"
-        className="sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:left-4 focus-visible:top-4 focus-visible:z-[60] focus-visible:rounded-full focus-visible:bg-white focus-visible:px-4 focus-visible:py-2 focus-visible:text-sm focus-visible:font-semibold focus-visible:text-slate-900 focus-visible:shadow-lg dark:focus-visible:bg-slate-900 dark:focus-visible:text-white"
+        href='#main'
+        className='sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:left-4 focus-visible:top-4 focus-visible:z-[60] focus-visible:rounded-full focus-visible:bg-white focus-visible:px-4 focus-visible:py-2 focus-visible:text-sm focus-visible:font-semibold focus-visible:text-slate-900 focus-visible:shadow-lg dark:focus-visible:bg-slate-900 dark:focus-visible:text-white'
       >
         Skip to content
       </a>
       <main
-        id="main"
+        id='main'
         tabIndex={-1}
-        className="relative h-screen w-screen overflow-hidden bg-gradient-to-br from-slate-50 via-slate-100 to-slate-200 text-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 dark:text-slate-100"
+        className='relative h-screen w-screen overflow-hidden bg-gradient-to-br from-slate-50 via-slate-100 to-slate-200 text-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 dark:text-slate-100'
         style={{
           paddingTop: 'env(safe-area-inset-top)',
           paddingRight: 'env(safe-area-inset-right)',
@@ -240,7 +259,7 @@ const FractalRoute = () => {
         }}
       >
         <div
-          className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(56,189,248,0.15),transparent_45%),radial-gradient(circle_at_85%_80%,rgba(14,165,233,0.12),transparent_50%)] dark:opacity-80"
+          className='pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(56,189,248,0.15),transparent_45%),radial-gradient(circle_at_85%_80%,rgba(14,165,233,0.12),transparent_50%)] dark:opacity-80'
           aria-hidden
         />
         <SideDrawer
@@ -250,7 +269,9 @@ const FractalRoute = () => {
           algorithm={resolvedAlgorithm}
           onChangeAlgorithm={handleAlgorithmChange}
           theme={theme}
-          onToggleTheme={() => setTheme((value) => (value === 'dark' ? 'light' : 'dark'))}
+          onToggleTheme={() =>
+            setTheme((value) => (value === 'dark' ? 'light' : 'dark'))
+          }
           onOverlayChange={setUiOverlayOpen}
           loc={locParam}
         />
@@ -283,9 +304,9 @@ const AnalyticsTracker = () => {
       const detail = (event as CustomEvent<{ enabled: boolean }>).detail;
       setEnabled(detail?.enabled ?? isAnalyticsEnabled());
     };
-    window.addEventListener('fractal-analytics-change', handleToggle);
+    globalThis.addEventListener('fractal-analytics-change', handleToggle);
     return () => {
-      window.removeEventListener('fractal-analytics-change', handleToggle);
+      globalThis.removeEventListener('fractal-analytics-change', handleToggle);
     };
   }, []);
 
@@ -315,7 +336,7 @@ const App = () => {
     const buildLabel = formatBuildTimestamp(APP_BUILD_TIME);
     const commitLabel = APP_COMMIT === 'unknown' ? 'unknown' : APP_COMMIT;
     console.info(
-      `[FractalThing] Version ${APP_VERSION} (${commitLabel}) built ${buildLabel}`
+      `[FractalThing] Version ${APP_VERSION} (${commitLabel}) built ${buildLabel}`,
     );
   }, []);
 
@@ -323,9 +344,9 @@ const App = () => {
     <BrowserRouter>
       <AnalyticsTracker />
       <Routes>
-        <Route path="/" element={<FractalRoute />} />
-        <Route path="/:algorithm" element={<FractalRoute />} />
-        <Route path="/:algorithm/:loc" element={<FractalRoute />} />
+        <Route path='/' element={<FractalRoute />} />
+        <Route path='/:algorithm' element={<FractalRoute />} />
+        <Route path='/:algorithm/:loc' element={<FractalRoute />} />
       </Routes>
     </BrowserRouter>
   );

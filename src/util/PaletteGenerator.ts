@@ -41,7 +41,9 @@ const parseHexColour = (value: string): [number, number, number] | null => {
 const clamp = (value: number, min: number, max: number) =>
   Math.min(max, Math.max(min, value));
 
-const normaliseStops = (stops: PaletteStop[]): { position: number; rgb: number[] }[] => {
+const normaliseStops = (
+  stops: PaletteStop[],
+): { position: number; rgb: number[] }[] => {
   const parsed = stops
     .map((stop) => {
       const position = clamp(Number(stop.position), 0, 1);
@@ -51,7 +53,8 @@ const normaliseStops = (stops: PaletteStop[]): { position: number; rgb: number[]
       }
       return { position, rgb };
     })
-    .filter((stop): stop is { position: number; rgb: number[] } => Boolean(stop));
+    .filter(Boolean,
+    );
 
   if (parsed.length < 2) {
     return normaliseStops(DEFAULT_PALETTE_STOPS);
@@ -82,7 +85,7 @@ const normaliseStops = (stops: PaletteStop[]): { position: number; rgb: number[]
 
 const PaletteGenerator = (
   size: number,
-  stops: PaletteStop[] = DEFAULT_PALETTE_STOPS
+  stops: PaletteStop[] = DEFAULT_PALETTE_STOPS,
 ): number[][] => {
   const createInterpolant = (xs: number[], ys: number[]) => {
     let length = xs.length;
@@ -133,7 +136,10 @@ const PaletteGenerator = (
         const dx = dxs[index];
         const dxNext = dxs[index + 1];
         const common = dx + dxNext;
-        c1s.push(3 * common / ((common + dxNext) / slope + (common + dx) / nextSlope));
+        c1s.push(
+          (3 * common) /
+            ((common + dxNext) / slope + (common + dx) / nextSlope),
+        );
       }
     }
     c1s.push(ms[ms.length - 1]);
@@ -173,7 +179,12 @@ const PaletteGenerator = (
 
       const delta = value - xs[index];
       const deltaSq = delta * delta;
-      return ys[index] + c1s[index] * delta + c2s[index] * deltaSq + c3s[index] * delta * deltaSq;
+      return (
+        ys[index] +
+        c1s[index] * delta +
+        c2s[index] * deltaSq +
+        c3s[index] * delta * deltaSq
+      );
     };
   };
 
@@ -190,7 +201,11 @@ const PaletteGenerator = (
   const palette: number[][] = [];
   for (let index = 0; index <= size; index += 1) {
     const ratio = index / size;
-    palette[index] = [interpolantR(ratio), interpolantG(ratio), interpolantB(ratio)];
+    palette[index] = [
+      interpolantR(ratio),
+      interpolantG(ratio),
+      interpolantB(ratio),
+    ];
   }
 
   return palette;

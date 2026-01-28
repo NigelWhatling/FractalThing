@@ -1,4 +1,5 @@
-const safeValue = (value: string) => (value && value !== 'unknown' ? value : 'unknown');
+const safeValue = (value: string) =>
+  value && value !== 'unknown' ? value : 'unknown';
 
 export const APP_VERSION = safeValue(__APP_VERSION__);
 export const APP_COMMIT = safeValue(__APP_COMMIT__);
@@ -12,7 +13,10 @@ export const formatBuildTimestamp = (timestamp: string) => {
   if (Number.isNaN(date.getTime())) {
     return 'unknown';
   }
-  return date.toISOString().replace('T', ' ').replace(/\.\d+Z$/, ' UTC');
+  return date
+    .toISOString()
+    .replace('T', ' ')
+    .replace(/\.\d+Z$/, ' UTC');
 };
 
 export const getVersionLabel = () => {
