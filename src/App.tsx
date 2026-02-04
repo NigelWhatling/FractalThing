@@ -45,6 +45,7 @@ import {
   type AnalyticsConsent,
 } from './util/analytics';
 import { useGeo } from './util/geo';
+import { applySeo, buildSeoPayload } from './util/seo';
 
 type WindowSize = {
   width: number;
@@ -188,6 +189,7 @@ const FractalRoute = () => {
     () => normaliseAlgorithm(algorithm),
     [algorithm],
   );
+  const isRootRoute = !algorithm;
   const [theme, setTheme] = useState<ThemeMode>(() => {
     if (!('localStorage' in globalThis)) return 'dark';
     const stored = globalThis.localStorage.getItem('theme');
@@ -226,6 +228,10 @@ const FractalRoute = () => {
     },
     [location.search, navigate],
   );
+
+  useEffect(() => {
+    applySeo(buildSeoPayload(resolvedAlgorithm, { isRoot: isRootRoute }));
+  }, [isRootRoute, resolvedAlgorithm]);
 
   useEffect(() => {
     const root = document.documentElement;
