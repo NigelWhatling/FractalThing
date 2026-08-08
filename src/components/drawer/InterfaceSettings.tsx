@@ -64,6 +64,14 @@ const InterfaceSettings = ({
           }
         />
         <ToggleControl
+          checked={settings.showMinimap}
+          label='Show minimap'
+          tooltip='Show an overview of the selected fractal and your current location.'
+          onClick={() =>
+            onUpdateSettings({ showMinimap: !settings.showMinimap })
+          }
+        />
+        <ToggleControl
           checked={analyticsEnabled}
           label='Analytics'
           tooltip='Toggle anonymous usage analytics.'

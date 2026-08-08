@@ -11,6 +11,7 @@ import type { RenderSettings } from '../state/settings';
 import type { FractalAlgorithm } from '../util/fractals';
 import InfoPanel from './InfoPanel';
 import type { InteractionMode } from './InteractionModeToggle';
+import MiniMap from './MiniMap';
 
 type FractalCanvasProps = Readonly<{
   width: number;
@@ -142,6 +143,15 @@ const FractalCanvas = ({
           aria-hidden
         />
       )}
+      {settings.showMinimap ? (
+        <MiniMap
+          algorithm={algorithm}
+          navigation={interactions.displayNavigation}
+          viewportWidth={width}
+          viewportHeight={height}
+          settings={settings}
+        />
+      ) : null}
       <InfoPanel
         nav={{
           x: formatDecimalCoordinate(interactions.displayNavigation.x),
