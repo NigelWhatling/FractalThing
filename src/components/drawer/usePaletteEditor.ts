@@ -11,6 +11,20 @@ import type { PaletteStop } from '../../util/PaletteGenerator';
 import { BUILTIN_PALETTES, type PalettePreset } from '../../util/palettes';
 
 const PALETTE_STORAGE_KEY = 'fractal:palettes';
+const PALETTE_STORAGE_ERROR =
+  'Could not save palettes in this browser. Allow site storage or free some space, then try again.';
+
+export const storePalettePresets = (
+  storage: Pick<Storage, 'setItem'>,
+  palettes: PalettePreset[],
+) => {
+  try {
+    storage.setItem(PALETTE_STORAGE_KEY, JSON.stringify(palettes));
+    return true;
+  } catch {
+    return false;
+  }
+};
 
 const stopsEqual = (first: PaletteStop[], second: PaletteStop[]) =>
   first.length === second.length &&
@@ -110,6 +124,9 @@ export const usePaletteEditor = ({
     return match?.id ?? 'current';
   });
   const [editingPaletteId, setEditingPaletteId] = useState<string | null>(null);
+  const [paletteStorageError, setPaletteStorageError] = useState<string | null>(
+    null,
+  );
   const paletteDragIndexRef = useRef<number | null>(null);
   const palettePendingRef = useRef<{ index: number; startX: number } | null>(
     null,
@@ -175,13 +192,28 @@ export const usePaletteEditor = ({
     return preset?.name ?? '';
   }, [editingPaletteId, palettePresets]);
 
-  useEffect(() => {
-    if (!('localStorage' in globalThis)) return;
-    globalThis.localStorage.setItem(
-      PALETTE_STORAGE_KEY,
-      JSON.stringify(customPalettes),
-    );
-  }, [customPalettes]);
+  const persistCustomPalettes = (nextPalettes: PalettePreset[]) => {
+    let storage: Storage;
+    try {
+      if (!('localStorage' in globalThis)) {
+        setPaletteStorageError(PALETTE_STORAGE_ERROR);
+        return false;
+      }
+      storage = globalThis.localStorage;
+    } catch {
+      setPaletteStorageError(PALETTE_STORAGE_ERROR);
+      return false;
+    }
+
+    if (!storePalettePresets(storage, nextPalettes)) {
+      setPaletteStorageError(PALETTE_STORAGE_ERROR);
+      return false;
+    }
+
+    setPaletteStorageError(null);
+    setCustomPalettes(nextPalettes);
+    return true;
+  };
 
   const updatePaletteStops = (
     updater: PaletteStop[] | ((currentStops: PaletteStop[]) => PaletteStop[]),
@@ -339,7 +371,6 @@ export const usePaletteEditor = ({
   };
 
   const handleSavePaletteAs = () => {
-    if (!('localStorage' in globalThis)) return;
     const initialName = paletteNameDraft.trim() || 'New palette';
     const promptValue = globalThis.prompt('Palette name', initialName);
     const name = promptValue?.trim() ?? '';
@@ -361,7 +392,9 @@ export const usePaletteEditor = ({
       name: name.trim(),
       stops: paletteStopsDraft.map((stop) => ({ ...stop })),
     };
-    setCustomPalettes((current) => [...current, nextPreset]);
+    if (!persistCustomPalettes([...customPalettes, nextPreset])) {
+      return;
+    }
     setEditingPaletteId(id);
     setPaletteNameDraft(name);
   };
@@ -388,17 +421,18 @@ export const usePaletteEditor = ({
       globalThis.alert('A palette with that name already exists.');
       return;
     }
-    setCustomPalettes((current) =>
-      current.map((item) =>
-        item.id === editingPaletteId
-          ? {
-              ...item,
-              name: nextName,
-              stops: paletteStopsDraft.map((stop) => ({ ...stop })),
-            }
-          : item,
-      ),
+    const nextPalettes = customPalettes.map((item) =>
+      item.id === editingPaletteId
+        ? {
+            ...item,
+            name: nextName,
+            stops: paletteStopsDraft.map((stop) => ({ ...stop })),
+          }
+        : item,
     );
+    if (!persistCustomPalettes(nextPalettes)) {
+      return;
+    }
     setPaletteNameDraft(nextName);
   };
 
@@ -442,9 +476,13 @@ export const usePaletteEditor = ({
     if (!globalThis.confirm(`Delete "${preset.name}"?`)) {
       return;
     }
-    setCustomPalettes((current) =>
-      current.filter((item) => item.id !== paletteId),
-    );
+    if (
+      !persistCustomPalettes(
+        customPalettes.filter((item) => item.id !== paletteId),
+      )
+    ) {
+      return;
+    }
     if (editingPaletteId === paletteId) {
       setEditingPaletteId(null);
     }
@@ -707,6 +745,7 @@ export const usePaletteEditor = ({
     paletteGradient,
     paletteNameDraft,
     palettePresets,
+    paletteStorageError,
     paletteStopsDraft,
     pendingDragRef: palettePendingRef,
     saveDisabled,

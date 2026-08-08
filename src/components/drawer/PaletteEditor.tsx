@@ -102,6 +102,7 @@ const PaletteEditor = ({
             paletteGradient={editor.paletteGradient}
             palettePresets={editor.palettePresets}
             customPalettes={editor.customPalettes}
+            paletteStorageError={editor.paletteStorageError}
             editingPaletteId={editor.editingPaletteId}
             saveDisabled={editor.saveDisabled}
             paletteDraftDirty={editor.paletteDraftDirty}

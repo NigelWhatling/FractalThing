@@ -37,6 +37,7 @@ type PaletteEditorModalProps = {
   paletteGradient: string;
   palettePresets: PalettePreset[];
   customPalettes: PalettePreset[];
+  paletteStorageError: string | null;
   editingPaletteId: string | null;
   saveDisabled: boolean;
   paletteDraftDirty: boolean;
@@ -74,6 +75,7 @@ const PaletteEditorModal = ({
   paletteGradient,
   palettePresets,
   customPalettes,
+  paletteStorageError,
   editingPaletteId,
   saveDisabled,
   paletteDraftDirty,
@@ -320,6 +322,15 @@ const PaletteEditorModal = ({
               Reset
             </button>
           </div>
+          {paletteStorageError && (
+            <p
+              className='text-pretty text-xs text-rose-700 dark:text-rose-300'
+              role='status'
+              aria-live='polite'
+            >
+              {paletteStorageError}
+            </p>
+          )}
           <div className='border-t border-slate-200/70 pt-4 dark:border-white/10' />
 
           <div className='space-y-2'>
