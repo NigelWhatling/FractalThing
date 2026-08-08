@@ -1,10 +1,12 @@
-import type { ReactNode } from 'react';
+import { useId, type ReactNode } from 'react';
 
 export type LabelWithHelpProps = {
   label: string;
   tooltip: string;
   variant?: 'subtitle' | 'body' | 'caption';
   htmlFor?: string;
+  helpFocusable?: boolean;
+  tooltipId?: string;
 };
 
 export const LabelWithHelp = ({
@@ -12,7 +14,11 @@ export const LabelWithHelp = ({
   tooltip,
   variant = 'subtitle',
   htmlFor,
+  helpFocusable = true,
+  tooltipId,
 }: LabelWithHelpProps) => {
+  const generatedTooltipId = useId();
+  const resolvedTooltipId = tooltipId ?? generatedTooltipId;
   const textClass =
     variant === 'caption'
       ? 'text-[10px] uppercase tracking-[0.14em] text-slate-500 dark:text-white/50'
@@ -28,13 +34,31 @@ export const LabelWithHelp = ({
       ) : (
         <span className={textClass}>{label}</span>
       )}
-      <span
-        className='cursor-help text-xs text-slate-400 dark:text-white/40'
-        role='img'
-        aria-label={`${label} info`}
-        title={tooltip}
-      >
-        ⓘ
+      <span className='group/help relative inline-flex'>
+        {helpFocusable ? (
+          <button
+            type='button'
+            className='cursor-help rounded-sm text-xs text-slate-400 transition-colors hover:text-slate-600 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:text-white/40 dark:hover:text-white/70'
+            aria-label={`${label} help`}
+            aria-describedby={resolvedTooltipId}
+          >
+            ⓘ
+          </button>
+        ) : (
+          <span
+            className='cursor-help text-xs text-slate-400 dark:text-white/40'
+            aria-hidden='true'
+          >
+            ⓘ
+          </span>
+        )}
+        <span
+          id={resolvedTooltipId}
+          role='tooltip'
+          className='pointer-events-none invisible absolute right-0 top-full z-[70] mt-2 w-56 rounded-lg bg-slate-900 px-3 py-2 text-left text-xs font-normal normal-case leading-relaxed tracking-normal text-white opacity-0 shadow-xl transition-opacity group-hover/help:visible group-hover/help:opacity-100 group-focus-within/help:visible group-focus-within/help:opacity-100 group-focus-visible/toggle:visible group-focus-visible/toggle:opacity-100 motion-reduce:transition-none dark:bg-slate-100 dark:text-slate-900'
+        >
+          {tooltip}
+        </span>
       </span>
     </div>
   );
@@ -93,29 +117,40 @@ export const ToggleControl = ({
   label: string;
   tooltip: string;
   onClick: () => void;
-}) => (
-  <button
-    type='button'
-    role='switch'
-    aria-checked={checked}
-    aria-label={label}
-    className='flex w-full touch-manipulation items-center justify-between rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5'
-    onClick={onClick}
-  >
-    <LabelWithHelp label={label} tooltip={tooltip} variant='body' />
-    <span
-      aria-hidden
-      className={`relative inline-flex h-6 w-11 items-center rounded-full border border-slate-200/70 transition motion-reduce:transition-none dark:border-white/10 ${
-        checked
-          ? 'bg-cyan-500/25 dark:bg-cyan-400/30'
-          : 'bg-slate-300/70 dark:bg-white/15'
-      }`}
+}) => {
+  const tooltipId = useId();
+
+  return (
+    <button
+      type='button'
+      role='switch'
+      aria-checked={checked}
+      aria-label={label}
+      aria-describedby={tooltipId}
+      className='group/toggle flex w-full touch-manipulation items-center justify-between rounded-xl border border-slate-200/70 bg-slate-100/70 px-4 py-3 text-left transition focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5'
+      onClick={onClick}
     >
-      <span
-        className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition motion-reduce:transition-none ${
-          checked ? 'translate-x-5' : 'translate-x-0.5'
-        }`}
+      <LabelWithHelp
+        label={label}
+        tooltip={tooltip}
+        tooltipId={tooltipId}
+        variant='body'
+        helpFocusable={false}
       />
-    </span>
-  </button>
-);
+      <span
+        aria-hidden
+        className={`relative inline-flex h-6 w-11 items-center rounded-full border border-slate-200/70 transition motion-reduce:transition-none dark:border-white/10 ${
+          checked
+            ? 'bg-cyan-500/25 dark:bg-cyan-400/30'
+            : 'bg-slate-300/70 dark:bg-white/15'
+        }`}
+      >
+        <span
+          className={`inline-block h-5 w-5 transform rounded-full bg-white shadow transition motion-reduce:transition-none ${
+            checked ? 'translate-x-5' : 'translate-x-0.5'
+          }`}
+        />
+      </span>
+    </button>
+  );
+};
