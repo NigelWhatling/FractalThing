@@ -64,7 +64,9 @@ export const setAnalyticsConsent = (consent: AnalyticsConsent) => {
   }
 
   globalThis.dispatchEvent(
-    new CustomEvent('fractal-analytics-consent-change', { detail: { consent } }),
+    new CustomEvent('fractal-analytics-consent-change', {
+      detail: { consent },
+    }),
   );
 };
 

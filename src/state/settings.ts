@@ -1,4 +1,7 @@
-import { DEFAULT_PALETTE_STOPS, type PaletteStop } from '../util/PaletteGenerator';
+import {
+  DEFAULT_PALETTE_STOPS,
+  type PaletteStop,
+} from '../util/PaletteGenerator';
 
 export type RenderSettings = {
   tileSize: number;
@@ -60,7 +63,7 @@ export type SettingsAction = {
 
 export const settingsReducer = (
   state: RenderSettings,
-  action: SettingsAction
+  action: SettingsAction,
 ): RenderSettings => {
   switch (action.type) {
     case 'update':

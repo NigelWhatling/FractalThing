@@ -1,7 +1,17 @@
 import type { FractalAlgorithm } from '../util/fractals';
+import type { DecimalCoordinate } from '../engine/viewport';
 
 export const START = 'start' as const;
 export const STOP = 'stop' as const;
+
+export type WorkerPerturbationData = Readonly<{
+  centreReal: DecimalCoordinate;
+  centreImag: DecimalCoordinate;
+  originReal: DecimalCoordinate;
+  originImag: DecimalCoordinate;
+  zoom: number;
+  glitchThreshold?: number;
+}>;
 
 export type WorkerStartMessage = {
   cmd: typeof START;
@@ -22,6 +32,7 @@ export type WorkerStartMessage = {
   algorithm: FractalAlgorithm;
   juliaCr: number;
   juliaCi: number;
+  perturbation?: WorkerPerturbationData;
 };
 
 export type WorkerStopMessage = {
@@ -41,5 +52,5 @@ export type WorkerResponseMessage = {
   height: number;
   blockSize: number;
   max: number;
-  values: number[];
+  values: Float64Array;
 };

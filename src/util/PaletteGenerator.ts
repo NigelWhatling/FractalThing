@@ -90,7 +90,7 @@ const PaletteGenerator = (
   stops: PaletteStop[] = DEFAULT_PALETTE_STOPS,
 ): number[][] => {
   const createInterpolant = (xs: number[], ys: number[]) => {
-    let length = xs.length;
+    const length = xs.length;
 
     if (length !== ys.length) {
       throw new Error('Need an equal count of xs and ys.');
@@ -164,10 +164,9 @@ const PaletteGenerator = (
       }
 
       let low = 0;
-      let mid = 0;
       let high = c3s.length - 1;
       while (low <= high) {
-        mid = Math.floor(0.5 * (low + high));
+        const mid = Math.floor(0.5 * (low + high));
         const valueHere = xs[mid];
         if (valueHere < value) {
           low = mid + 1;

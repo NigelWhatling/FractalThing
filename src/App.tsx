@@ -46,6 +46,8 @@ import {
 } from './util/analytics';
 import { useGeo } from './util/geo';
 import { applySeo, buildSeoPayload } from './util/seo';
+import { formatNavigation, navigationFromView } from './engine/viewport';
+import { useFractalNavigation } from './hooks/useFractalNavigation';
 
 type WindowSize = {
   width: number;
@@ -111,17 +113,6 @@ const loadStoredSettings = (): RenderSettings => {
     return base;
   }
 };
-
-const formatNavValue = (value: number) => {
-  if (!Number.isFinite(value)) {
-    return '0';
-  }
-  const fixed = value.toFixed(15);
-  return fixed.replace(/\.?0+$/, '');
-};
-
-const buildLocFromNav = (nav: { x: number; y: number; z: number }) =>
-  `@${formatNavValue(nav.x)},${formatNavValue(nav.y)}x${formatNavValue(nav.z)}`;
 
 const useWindowSize = (): WindowSize => {
   const [size, setSize] = useState<WindowSize>({
@@ -189,6 +180,12 @@ const FractalRoute = () => {
     () => normaliseAlgorithm(algorithm),
     [algorithm],
   );
+  const { navigation, setNavigation } = useFractalNavigation({
+    algorithm: resolvedAlgorithm,
+    loc: locParam,
+    resetSignal,
+    autoUpdateUrl: settings.autoUpdateUrl,
+  });
   const isRootRoute = !algorithm;
   const [theme, setTheme] = useState<ThemeMode>(() => {
     if (!('localStorage' in globalThis)) return 'dark';
@@ -221,7 +218,7 @@ const FractalRoute = () => {
       searchParams.delete('y');
       searchParams.delete('z');
       const defaultNav = getDefaultView(nextAlgorithm);
-      const locString = buildLocFromNav(defaultNav);
+      const locString = formatNavigation(navigationFromView(defaultNav));
       const nextPath = `/${nextAlgorithm}/${locString}`;
       const nextSearch = searchParams.toString();
       navigate(`${nextPath}${nextSearch ? `?${nextSearch}` : ''}`);
@@ -284,7 +281,7 @@ const FractalRoute = () => {
             setTheme((value) => (value === 'dark' ? 'light' : 'dark'))
           }
           onOverlayChange={setUiOverlayOpen}
-          loc={locParam}
+          navigation={navigation}
         />
         <InteractionModeToggle
           value={interactionMode}
@@ -292,7 +289,9 @@ const FractalRoute = () => {
           onReset={() => setResetSignal((value) => value + 1)}
         />
         <FractalCanvas
-          loc={locParam}
+          algorithm={resolvedAlgorithm}
+          navigation={navigation}
+          setNavigation={setNavigation}
           width={width}
           height={height}
           settings={settings}
@@ -317,20 +316,20 @@ const AnalyticsTracker = () => {
     getAnalyticsConsent(),
   );
   const needsGeo =
-    import.meta.env.PROD && Boolean(validMeasurementId) && enabled && consent === 'unset';
+    import.meta.env.PROD &&
+    Boolean(validMeasurementId) &&
+    enabled &&
+    consent === 'unset';
   const geo = useGeo(needsGeo);
-  const shouldTrack = useMemo(
-    () => {
-      if (!import.meta.env.PROD) return false;
-      if (!validMeasurementId) return false;
-      if (!enabled) return false;
-      if (consent === 'yes') return true;
-      if (consent === 'no') return false;
-      if (geo.status !== 'ready') return false;
-      return !geo.isEu;
-    },
-    [consent, enabled, geo.isEu, geo.status, validMeasurementId],
-  );
+  const shouldTrack = useMemo(() => {
+    if (!import.meta.env.PROD) return false;
+    if (!validMeasurementId) return false;
+    if (!enabled) return false;
+    if (consent === 'yes') return true;
+    if (consent === 'no') return false;
+    if (geo.status !== 'ready') return false;
+    return !geo.isEu;
+  }, [consent, enabled, geo.isEu, geo.status, validMeasurementId]);
 
   useEffect(() => {
     const handleToggle = (event: Event) => {
@@ -338,7 +337,8 @@ const AnalyticsTracker = () => {
       setEnabled(detail?.enabled ?? isAnalyticsEnabled());
     };
     const handleConsentToggle = (event: Event) => {
-      const detail = (event as CustomEvent<{ consent: AnalyticsConsent }>).detail;
+      const detail = (event as CustomEvent<{ consent: AnalyticsConsent }>)
+        .detail;
       setConsent(detail?.consent ?? getAnalyticsConsent());
     };
     const handleStorage = (event: StorageEvent) => {

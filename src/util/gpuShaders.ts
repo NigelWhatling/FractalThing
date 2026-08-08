@@ -13,7 +13,7 @@ export const buildFragmentShaderSource = (
   precision: 'highp' | 'mediump',
   includeLimb = true,
   limbFractional = 4,
-  limbCount = 12
+  limbCount = 12,
 ) => {
   const limbScaleLiteral = Number.isFinite(limbFractional)
     ? Math.pow(1024, limbFractional).toExponential(8)
@@ -24,19 +24,23 @@ export const buildFragmentShaderSource = (
     return `${variable}.${segment}.${component}`;
   };
   const buildLimbComponents = (variable: string, count: number) =>
-    Array.from({ length: count }, (_, index) => buildLimbAccess(variable, index));
+    Array.from({ length: count }, (_, index) =>
+      buildLimbAccess(variable, index),
+    );
   const buildLimbNormalizeSource = (count: number) => {
     const components = buildLimbComponents('v', count);
     if (components.length === 0) {
       return '';
     }
     const lines: string[] = [];
-    lines.push(`    float carry = floor((${components[0]} + LIMB_HALF) / LIMB_BASE);`);
+    lines.push(
+      `    float carry = floor((${components[0]} + LIMB_HALF) / LIMB_BASE);`,
+    );
     lines.push(`    ${components[0]} -= carry * LIMB_BASE;`);
     lines.push(`    ${components[1]} += carry;`);
     for (let index = 1; index < components.length - 1; index += 1) {
       lines.push(
-        `    carry = floor((${components[index]} + LIMB_HALF) / LIMB_BASE);`
+        `    carry = floor((${components[index]} + LIMB_HALF) / LIMB_BASE);`,
       );
       lines.push(`    ${components[index]} -= carry * LIMB_BASE;`);
       lines.push(`    ${components[index + 1]} += carry;`);
@@ -47,10 +51,10 @@ export const buildFragmentShaderSource = (
     return lines.join('\n');
   };
   const buildLimbFromFloatSource = (count: number) => {
-    const limbs = Array.from({ length: count }, (_, index) => `l${index}`);
+    const limbs = Array.from({ length: count }, (_, _index) => `l${_index}`);
     const lines: string[] = [];
     lines.push('    float v = abs(scaled);');
-    limbs.forEach((limb, index) => {
+    limbs.forEach((limb) => {
       lines.push(`    float ${limb} = mod(v, LIMB_BASE);`);
       lines.push(`    v = floor(v / LIMB_BASE);`);
     });
@@ -285,7 +289,8 @@ ${buildLimbMulSource(limbFractional, limbCount)}
         float realFloat = limbToFloat(realLimb);
         float imagFloat = limbToFloat(imagLimb);
         mag = realFloat * realFloat + imagFloat * imagFloat;
-        if (mag > 4.0) {
+        float bailoutSquared = u_smooth ? 65536.0 : 4.0;
+        if (mag > bailoutSquared) {
           break;
         }
         Limb12 realSqL = limbMul(realLimb, realLimb);
@@ -475,7 +480,8 @@ ${buildLimbMulSource(limbFractional, limbCount)}
         vec2 realSqDD = ddMul(realDD, realDD);
         vec2 imagSqDD = ddMul(imagDD, imagDD);
         mag = ddToFloat(ddAdd(realSqDD, imagSqDD));
-        if (mag > 4.0) {
+        float bailoutSquared = u_smooth ? 65536.0 : 4.0;
+        if (mag > bailoutSquared) {
           break;
         }
         vec2 realNext;
@@ -516,7 +522,8 @@ ${buildLimbMulSource(limbFractional, limbCount)}
         imagSq = imagPart * imagPart;
       } else {
         mag = realSq + imagSq;
-        if (mag > 4.0) {
+        float bailoutSquared = u_smooth ? 65536.0 : 4.0;
+        if (mag > bailoutSquared) {
           break;
         }
         if (u_algorithm > 1.5 && u_algorithm < 2.5) {
@@ -556,7 +563,8 @@ ${buildLimbMulSource(limbFractional, limbCount)}
     float smoothCount = iterCount;
     if (u_smooth) {
       float logZn = log(realSq + imagSq) / 2.0;
-      float nu = log(logZn / log(2.0)) / log(2.0);
+      float degree = u_algorithm > 3.5 && u_algorithm < 4.5 ? 3.0 : 2.0;
+      float nu = log(logZn / log(2.0)) / log(degree);
       smoothCount = iterCount + 1.0 - nu;
     }
 
