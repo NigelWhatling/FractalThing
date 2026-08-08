@@ -132,7 +132,7 @@ const FractalCanvas = ({
       />
       {interactions.selectionRect && (
         <div
-          className='pointer-events-none absolute border border-cyan-400/70 bg-cyan-400/10 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.2)] dark:border-cyan-300/70 dark:bg-cyan-300/10'
+          className='pointer-events-none absolute z-10 border border-cyan-400/70 bg-cyan-400/10 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.2)] dark:border-cyan-300/70 dark:bg-cyan-300/10'
           style={{
             left: interactions.selectionRect.x,
             top: interactions.selectionRect.y,

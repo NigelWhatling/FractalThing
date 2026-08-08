@@ -90,9 +90,7 @@ export const useCanvasInteractions = ({
   const interactionModeRef = useRef(interactionMode);
   const overlayOpenRef = useRef(uiOverlayOpen);
   const displayRafRef = useRef<number | null>(null);
-  const selectionRafRef = useRef<number | null>(null);
   const pendingDisplayRef = useRef<Navigation | null>(null);
-  const pendingSelectionRef = useRef<SelectionRect | null>(null);
   const suppressClickRef = useRef(false);
   const selectionRef = useRef<SelectionState>(emptySelection());
   const dragRef = useRef<DragState>({
@@ -149,17 +147,6 @@ export const useCanvasInteractions = ({
     });
   }, []);
 
-  const queueSelectionRect = useCallback((nextRect: SelectionRect | null) => {
-    pendingSelectionRef.current = nextRect;
-    if (selectionRafRef.current !== null) {
-      return;
-    }
-    selectionRafRef.current = globalThis.requestAnimationFrame(() => {
-      selectionRafRef.current = null;
-      setSelectionRect(pendingSelectionRef.current);
-    });
-  }, []);
-
   const computeSelectionRect = useCallback(
     (
       startX: number,
@@ -210,13 +197,12 @@ export const useCanvasInteractions = ({
     suppressClickRef.current = false;
     cancelQueuedDisplayNavigation();
     setDisplayNavigation(navigationRef.current);
-    queueSelectionRect(null);
+    setSelectionRect(null);
   }, [
     cancelQueuedDisplayNavigation,
     cpuCanvasRef,
     gpuCanvasRef,
     interactionMode,
-    queueSelectionRect,
     resetSignal,
   ]);
 
@@ -241,7 +227,7 @@ export const useCanvasInteractions = ({
           startX: event.offsetX,
           startY: event.offsetY,
         };
-        queueSelectionRect({
+        setSelectionRect({
           x: event.offsetX,
           y: event.offsetY,
           width: 0,
@@ -274,7 +260,7 @@ export const useCanvasInteractions = ({
         if (!selection.active || selection.pointerId !== event.pointerId) {
           return;
         }
-        queueSelectionRect(
+        setSelectionRect(
           computeSelectionRect(
             selection.startX,
             selection.startY,
@@ -324,7 +310,7 @@ export const useCanvasInteractions = ({
           event.offsetX,
           event.offsetY,
         );
-        queueSelectionRect(null);
+        setSelectionRect(null);
         if (rect.width < 4 || rect.height < 4) {
           return;
         }
@@ -382,7 +368,7 @@ export const useCanvasInteractions = ({
       canvas.style.transform = 'translate(0px, 0px)';
       canvas.style.cursor =
         interactionModeRef.current === 'grab' ? 'grab' : 'crosshair';
-      queueSelectionRect(null);
+      setSelectionRect(null);
       cancelQueuedDisplayNavigation();
       setDisplayNavigation(navigationRef.current);
     };
@@ -440,7 +426,6 @@ export const useCanvasInteractions = ({
     gpuCanvasRef,
     height,
     queueDisplayNavigation,
-    queueSelectionRect,
     shiftCpu,
     useGpuCanvas,
     width,
@@ -525,9 +510,6 @@ export const useCanvasInteractions = ({
     () => () => {
       if (displayRafRef.current !== null) {
         globalThis.cancelAnimationFrame(displayRafRef.current);
-      }
-      if (selectionRafRef.current !== null) {
-        globalThis.cancelAnimationFrame(selectionRafRef.current);
       }
     },
     [],
