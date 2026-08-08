@@ -15,6 +15,7 @@ export const buildFragmentShaderSource = (
   limbFractional = 4,
   limbCount = 12,
 ) => {
+  const smoothBailoutSquaredLiteral = precision === 'highp' ? '65536.0' : '4.0';
   const limbScaleLiteral = Number.isFinite(limbFractional)
     ? Math.pow(1024, limbFractional).toExponential(8)
     : '1.0';
@@ -289,7 +290,7 @@ ${buildLimbMulSource(limbFractional, limbCount)}
         float realFloat = limbToFloat(realLimb);
         float imagFloat = limbToFloat(imagLimb);
         mag = realFloat * realFloat + imagFloat * imagFloat;
-        float bailoutSquared = u_smooth ? 65536.0 : 4.0;
+        float bailoutSquared = u_smooth ? ${smoothBailoutSquaredLiteral} : 4.0;
         if (mag > bailoutSquared) {
           break;
         }
@@ -480,7 +481,7 @@ ${buildLimbMulSource(limbFractional, limbCount)}
         vec2 realSqDD = ddMul(realDD, realDD);
         vec2 imagSqDD = ddMul(imagDD, imagDD);
         mag = ddToFloat(ddAdd(realSqDD, imagSqDD));
-        float bailoutSquared = u_smooth ? 65536.0 : 4.0;
+        float bailoutSquared = u_smooth ? ${smoothBailoutSquaredLiteral} : 4.0;
         if (mag > bailoutSquared) {
           break;
         }
@@ -522,7 +523,7 @@ ${buildLimbMulSource(limbFractional, limbCount)}
         imagSq = imagPart * imagPart;
       } else {
         mag = realSq + imagSq;
-        float bailoutSquared = u_smooth ? 65536.0 : 4.0;
+        float bailoutSquared = u_smooth ? ${smoothBailoutSquaredLiteral} : 4.0;
         if (mag > bailoutSquared) {
           break;
         }
