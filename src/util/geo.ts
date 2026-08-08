@@ -97,6 +97,7 @@ export const useGeo = (enabled = true): GeoInfo => {
     return { status: 'pending', country: null, isEu: false };
   });
 
+  /* eslint-disable react-hooks/set-state-in-effect -- prop and cache changes reset an external request state. */
   useEffect(() => {
     if (!enabled) {
       setGeo({ status: 'ready', country: null, isEu: false });
@@ -113,6 +114,7 @@ export const useGeo = (enabled = true): GeoInfo => {
     }
     setGeo({ status: 'pending', country: null, isEu: false });
   }, [enabled, override]);
+  /* eslint-enable react-hooks/set-state-in-effect */
 
   useEffect(() => {
     if (!enabled) return;

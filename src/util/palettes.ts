@@ -6,8 +6,7 @@ export type PalettePreset = {
   stops: PaletteStop[];
 };
 
-const cloneStops = (stops: PaletteStop[]) =>
-  stops.map((stop) => ({ ...stop }));
+const cloneStops = (stops: PaletteStop[]) => stops.map((stop) => ({ ...stop }));
 
 export const BUILTIN_PALETTES: PalettePreset[] = [
   {

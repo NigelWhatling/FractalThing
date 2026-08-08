@@ -1,9 +1,5 @@
 export type FractalAlgorithm =
-  | 'mandelbrot'
-  | 'julia'
-  | 'burning-ship'
-  | 'tricorn'
-  | 'multibrot-3';
+  'mandelbrot' | 'julia' | 'burning-ship' | 'tricorn' | 'multibrot-3';
 
 export type FractalOption = {
   value: FractalAlgorithm;

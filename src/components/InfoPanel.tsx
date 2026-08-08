@@ -3,8 +3,8 @@ import { APP_VERSION } from '../util/version';
 
 type InfoPanelProps = {
   nav: {
-    x: number;
-    y: number;
+    x: number | string;
+    y: number | string;
     z: number;
   };
   isRendering: boolean;
@@ -12,10 +12,13 @@ type InfoPanelProps = {
   precisionWarning?: boolean;
   renderMode: string;
   finalRenderMs?: number | null;
-  gpuError?: string | null;
+  renderError?: string | null;
 };
 
-const formatValue = (value: number) => {
+const formatValue = (value: number | string) => {
+  if (typeof value === 'string') {
+    return value;
+  }
   if (!Number.isFinite(value)) {
     return '0';
   }
@@ -33,7 +36,7 @@ const InfoPanel = ({
   precisionWarning = false,
   renderMode,
   finalRenderMs = null,
-  gpuError = null,
+  renderError = null,
 }: InfoPanelProps) => {
   const rootRef = useRef<HTMLDivElement | null>(null);
 
@@ -44,8 +47,14 @@ const InfoPanel = ({
     }
 
     const update = () => {
-      const nextHeight = Math.max(0, Math.round(node.getBoundingClientRect().height));
-      document.documentElement.style.setProperty('--info-panel-height', `${nextHeight}px`);
+      const nextHeight = Math.max(
+        0,
+        Math.round(node.getBoundingClientRect().height),
+      );
+      document.documentElement.style.setProperty(
+        '--info-panel-height',
+        `${nextHeight}px`,
+      );
     };
 
     update();
@@ -77,42 +86,42 @@ const InfoPanel = ({
   return (
     <div
       ref={rootRef}
-      className="pointer-events-none fixed bottom-0 left-0 right-0 z-50 grid grid-cols-[1fr_auto_1fr] items-center gap-3 bg-slate-950/60 backdrop-blur-sm px-3 py-1 text-[11px]"
+      className='pointer-events-none fixed bottom-0 left-0 right-0 z-50 grid grid-cols-[1fr_auto_1fr] items-center gap-3 bg-slate-950/60 backdrop-blur-sm px-3 py-1 text-[11px]'
     >
-      <div className="flex flex-wrap gap-3 font-mono text-[11px] tabular-nums text-white/70">
+      <div className='flex flex-wrap gap-3 font-mono text-[11px] tabular-nums text-white/70'>
         <span>X {formatValue(nav.x)}</span>
         <span>Y {formatValue(nav.y)}</span>
         <span>Z {formatValue(nav.z)}</span>
         <span>Max {formatIterations(maxIterations)}</span>
       </div>
-      <div className="text-center">
-        <div aria-live="polite" aria-atomic="true">
-          {gpuError ? (
-            <span className="text-[10px] uppercase tracking-[0.18em] text-rose-200/90">
-              {gpuError}
+      <div className='text-center'>
+        <div aria-live='polite' aria-atomic='true'>
+          {renderError ? (
+            <span className='text-[10px] uppercase tracking-[0.18em] text-rose-200/90'>
+              {renderError}
             </span>
           ) : (
             precisionWarning && (
-              <span className="text-[10px] uppercase tracking-[0.2em] text-amber-200/80">
+              <span className='text-[10px] uppercase tracking-[0.2em] text-amber-200/80'>
                 Precision limit reached
               </span>
             )
           )}
         </div>
         <a
-          href="https://github.com/NigelWhatling/FractalThing"
-          target="_blank"
-          rel="noreferrer"
-          className="pointer-events-auto block text-[10px] uppercase tracking-[0.2em] text-white/60 transition hover:text-white/80"
+          href='https://github.com/NigelWhatling/FractalThing'
+          target='_blank'
+          rel='noreferrer'
+          className='pointer-events-auto block text-[10px] uppercase tracking-[0.2em] text-white/60 transition hover:text-white/80'
         >
           {`FractalThing ${APP_VERSION}`}
         </a>
       </div>
       <span
-        className="text-right text-[10px] uppercase tracking-wider tabular-nums text-white/60"
-        role="status"
-        aria-live="polite"
-        aria-atomic="true"
+        className='text-right text-[10px] uppercase tracking-wider tabular-nums text-white/60'
+        role='status'
+        aria-live='polite'
+        aria-atomic='true'
       >
         {renderMode} · {renderStatus} · {finalRenderLabel}
       </span>

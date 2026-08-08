@@ -1,4 +1,7 @@
-import { DEFAULT_PALETTE_STOPS, type PaletteStop } from '../util/PaletteGenerator';
+import {
+  DEFAULT_PALETTE_STOPS,
+  type PaletteStop,
+} from '../util/PaletteGenerator';
 
 export type RenderSettings = {
   tileSize: number;
@@ -17,6 +20,7 @@ export type RenderSettings = {
   hueRotate: number;
   workerCount: number;
   autoUpdateUrl: boolean;
+  showMinimap: boolean;
   renderBackend: 'cpu' | 'gpu';
   gpuPrecision: 'single' | 'double' | 'limb';
   gpuLimbProfile: 'balanced' | 'high' | 'extreme' | 'ultra';
@@ -47,6 +51,7 @@ export const defaultSettings: RenderSettings = {
   hueRotate: 0,
   workerCount: getDefaultWorkerCount(),
   autoUpdateUrl: true,
+  showMinimap: true,
   renderBackend: 'cpu',
   gpuPrecision: 'single',
   gpuLimbProfile: 'balanced',
@@ -60,7 +65,7 @@ export type SettingsAction = {
 
 export const settingsReducer = (
   state: RenderSettings,
-  action: SettingsAction
+  action: SettingsAction,
 ): RenderSettings => {
   switch (action.type) {
     case 'update':

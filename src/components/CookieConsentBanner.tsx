@@ -23,11 +23,14 @@ const CookieConsentBanner = () => {
   const [analyticsEnabled, setAnalyticsEnabledState] = useState(() =>
     isAnalyticsEnabled(),
   );
-  const geo = useGeo(hasValidMeasurementId && analyticsEnabled && consent === 'unset');
+  const geo = useGeo(
+    hasValidMeasurementId && analyticsEnabled && consent === 'unset',
+  );
 
   useEffect(() => {
     const handleToggle = (event: Event) => {
-      const detail = (event as CustomEvent<{ consent: AnalyticsConsent }>).detail;
+      const detail = (event as CustomEvent<{ consent: AnalyticsConsent }>)
+        .detail;
       setConsentState(detail?.consent ?? getAnalyticsConsent());
     };
     const handleAnalyticsToggle = (event: Event) => {
@@ -43,12 +46,24 @@ const CookieConsentBanner = () => {
         setAnalyticsEnabledState(isAnalyticsEnabled());
       }
     };
-    globalThis.addEventListener('fractal-analytics-consent-change', handleToggle);
-    globalThis.addEventListener('fractal-analytics-change', handleAnalyticsToggle);
+    globalThis.addEventListener(
+      'fractal-analytics-consent-change',
+      handleToggle,
+    );
+    globalThis.addEventListener(
+      'fractal-analytics-change',
+      handleAnalyticsToggle,
+    );
     globalThis.addEventListener('storage', handleStorage);
     return () => {
-      globalThis.removeEventListener('fractal-analytics-consent-change', handleToggle);
-      globalThis.removeEventListener('fractal-analytics-change', handleAnalyticsToggle);
+      globalThis.removeEventListener(
+        'fractal-analytics-consent-change',
+        handleToggle,
+      );
+      globalThis.removeEventListener(
+        'fractal-analytics-change',
+        handleAnalyticsToggle,
+      );
       globalThis.removeEventListener('storage', handleStorage);
     };
   }, []);
