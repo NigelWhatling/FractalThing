@@ -2,9 +2,61 @@
 @tailwind components;
 @tailwind utilities;
 
+/*
+ * Design tokens — see docs/ui-direction.md.
+ *
+ * The chrome is greyscale because the fractal supplies all the colour. Neutrals
+ * are near-neutral rather than Tailwind slate, so a blue cast never fights the
+ * palette-derived accent.
+ */
+:root {
+  --ft-void: #f2f2f0;
+  /* Quiet by default so the fractal reads through the chrome; --ft-panel-solid
+     is the hover/working state. The quiet alpha is a contrast floor, not taste:
+     it is the lowest value at which --ft-dim still clears 3:1 over the
+     worst-case backdrop (solid black here, solid white in dark mode). */
+  --ft-panel: rgba(252, 252, 251, 0.85);
+  --ft-panel-solid: rgba(252, 252, 251, 0.95);
+  --ft-raised: rgba(23, 25, 27, 0.035);
+  --ft-checker: rgba(23, 25, 27, 0.055);
+  --ft-rule: rgba(23, 25, 27, 0.11);
+  --ft-rule-strong: rgba(23, 25, 27, 0.2);
+  --ft-dim: #5e6266;
+  /* Status is semantic, so it is NOT palette-derived — the accent could be any
+     hue, and a green "warning" is nonsense. Both clear 4.5:1 against the quiet
+     bar's worst-case composite. */
+  --ft-warn: #7a4f00;
+  --ft-danger: #9b1c15;
+  --ft-text: #17191b;
+
+  /* Overwritten at runtime from the active palette; neutral until then. */
+  --ft-accent-rgb: 40 42 45;
+  --ft-accent: rgb(var(--ft-accent-rgb));
+
+  --ft-shadow: 0 8px 28px rgba(15, 16, 18, 0.16);
+}
+
+.dark {
+  --ft-void: #0a0b0d;
+  --ft-panel: rgba(18, 20, 23, 0.8);
+  --ft-panel-solid: rgba(18, 20, 23, 0.93);
+  --ft-raised: rgba(255, 255, 255, 0.045);
+  --ft-checker: rgba(255, 255, 255, 0.05);
+  --ft-rule: rgba(255, 255, 255, 0.09);
+  --ft-rule-strong: rgba(255, 255, 255, 0.16);
+  --ft-dim: #9ba3aa;
+  --ft-warn: #f0b429;
+  --ft-danger: #ff9e8f;
+  --ft-text: #e4e7ea;
+
+  --ft-accent-rgb: 214 218 222;
+
+  --ft-shadow: 0 8px 28px rgba(0, 0, 0, 0.5);
+}
+
 body {
   margin: 0;
-  font-family: 'Inter', system-ui, 'Segoe UI', sans-serif;
+  font-family: 'Archivo', system-ui, 'Segoe UI', sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
   overflow: hidden;
@@ -12,8 +64,42 @@ body {
 }
 
 code {
-  font-family:
-    source-code-pro, Menlo, Monaco, Consolas, 'Courier New', monospace;
+  font-family: 'IBM Plex Mono', Menlo, Monaco, Consolas, monospace;
+}
+
+/*
+ * Ground for pixels the renderer has not produced yet — the strip exposed while
+ * panning, and the whole canvas before the first pass lands. It must not be flat
+ * black: black is a real fractal colour (the interior of the set), so a black
+ * gap is indistinguishable from content. A checker reads unambiguously as
+ * "nothing here yet".
+ */
+.unrendered {
+  background-color: var(--ft-void);
+  background-image:
+    linear-gradient(
+      45deg,
+      var(--ft-checker) 25%,
+      transparent 25%,
+      transparent 75%,
+      var(--ft-checker) 75%
+    ),
+    linear-gradient(
+      45deg,
+      var(--ft-checker) 25%,
+      transparent 25%,
+      transparent 75%,
+      var(--ft-checker) 75%
+    );
+  background-size: 16px 16px;
+  background-position:
+    0 0,
+    8px 8px;
+}
+
+/* Numeric readouts must not jitter as values update during a drag. */
+.tabular {
+  font-variant-numeric: tabular-nums;
 }
 
 #root {

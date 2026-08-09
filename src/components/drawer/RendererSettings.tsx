@@ -1,5 +1,6 @@
 import type { RenderSettings } from '../../state/settings';
 import { LabelWithHelp, SelectChevron } from './DrawerPrimitives';
+import { optionClass, selectClass } from './styles';
 
 const rendererOptions = [
   { value: 'cpu', label: 'CPU (workers)' },
@@ -60,7 +61,7 @@ const RendererSettings = ({
         />
         <div className='relative'>
           <select
-            className='w-full touch-manipulation appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+            className={selectClass}
             id='renderer-select'
             name='renderer'
             aria-label='Renderer'
@@ -71,7 +72,7 @@ const RendererSettings = ({
               <option
                 key={option.value}
                 value={option.value}
-                className='bg-white text-slate-900 dark:bg-slate-900 dark:text-white'
+                className={optionClass}
               >
                 {option.label}
               </option>
@@ -90,7 +91,7 @@ const RendererSettings = ({
           />
           <div className='relative'>
             <select
-              className='w-full touch-manipulation appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+              className={selectClass}
               id='limb-profile-select'
               name='limb-profile'
               aria-label='Limb profile'
@@ -106,7 +107,7 @@ const RendererSettings = ({
                 <option
                   key={option.value}
                   value={option.value}
-                  className='bg-white text-slate-900 dark:bg-slate-900 dark:text-white'
+                  className={optionClass}
                 >
                   {option.label}
                 </option>

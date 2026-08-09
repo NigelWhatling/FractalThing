@@ -6,6 +6,7 @@ import { createPortal } from 'react-dom';
 import { LabelWithHelp, SelectChevron } from './DrawerPrimitives';
 import PaletteEditorModal from './PaletteEditorModal';
 import { usePaletteEditor } from './usePaletteEditor';
+import { buttonClass, optionClass, selectClass } from './styles';
 
 type PaletteEditorProps = {
   settings: RenderSettings;
@@ -40,25 +41,18 @@ const PaletteEditor = ({
         />
         <div className='relative'>
           <select
-            className='w-full touch-manipulation appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+            className={selectClass}
             id='palette-select'
             name='palette'
             aria-label='Palette'
             value={editor.activePresetId}
             onChange={(event) => editor.handlePresetChange(event.target.value)}
           >
-            <option
-              value='current'
-              className='bg-white text-slate-900 dark:bg-slate-900 dark:text-white'
-            >
+            <option value='current' className={optionClass}>
               Current
             </option>
             {editor.palettePresets.map((option) => (
-              <option
-                key={option.id}
-                value={option.id}
-                className='bg-white text-slate-900 dark:bg-slate-900 dark:text-white'
-              >
+              <option key={option.id} value={option.id} className={optionClass}>
                 {option.name}
               </option>
             ))}
@@ -66,7 +60,7 @@ const PaletteEditor = ({
           <SelectChevron />
         </div>
         <div
-          className='h-3 w-full rounded-full border border-slate-200/70 bg-slate-200 dark:border-white/10 dark:bg-white/5'
+          className='h-3 w-full rounded-control border border-rule-strong'
           style={{ backgroundImage: editor.paletteGradient }}
         />
         <button
@@ -75,7 +69,7 @@ const PaletteEditor = ({
           aria-haspopup='dialog'
           aria-controls='palette-editor-modal'
           aria-expanded={editor.open}
-          className='touch-manipulation rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
+          className={buttonClass}
           onClick={editor.openModal}
         >
           Palette Editor

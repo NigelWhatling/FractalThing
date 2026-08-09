@@ -15,10 +15,14 @@ import {
   useParams,
 } from 'react-router-dom';
 import FractalCanvas from './components/FractalCanvas';
-import InteractionModeToggle, {
+import Rail from './components/Rail';
+import {
+  PANEL_WIDTH,
+  RAIL_WIDTH,
   type InteractionMode,
-} from './components/InteractionModeToggle';
-import SideDrawer from './components/SideDrawer';
+  type PanelId,
+} from './state/ui';
+import SettingsPanel from './components/SettingsPanel';
 import CookieConsentBanner from './components/CookieConsentBanner';
 import {
   defaultSettings,
@@ -44,10 +48,12 @@ import {
   trackPageView,
   type AnalyticsConsent,
 } from './util/analytics';
+import { accentFrom, formatAccentChannels } from './util/accent';
 import { useGeo } from './util/geo';
 import { applySeo, buildSeoPayload } from './util/seo';
 import { formatNavigation, navigationFromView } from './engine/viewport';
 import { useFractalNavigation } from './hooks/useFractalNavigation';
+import { useSafeAreaInsets } from './hooks/useSafeAreaInsets';
 
 type WindowSize = {
   width: number;
@@ -55,6 +61,9 @@ type WindowSize = {
 };
 
 type ThemeMode = 'light' | 'dark';
+
+/** Below this the panel covers the canvas as a sheet instead of insetting it. */
+const SHEET_BREAKPOINT = 640;
 
 const SETTINGS_STORAGE_KEY = 'fractal-thing-settings';
 
@@ -76,6 +85,9 @@ const loadStoredSettings = (): RenderSettings => {
       return base;
     }
     const renderBackend = parsed.renderBackend === 'gpu' ? 'gpu' : 'cpu';
+    const railPosition = parsed.railPosition === 'left' ? 'left' : 'right';
+    const coordinateLabels =
+      parsed.coordinateLabels === 'cartesian' ? 'cartesian' : 'complex';
     const gpuPrecision =
       parsed.gpuPrecision === 'double' || parsed.gpuPrecision === 'limb'
         ? parsed.gpuPrecision
@@ -101,6 +113,8 @@ const loadStoredSettings = (): RenderSettings => {
       ...base,
       ...parsed,
       renderBackend,
+      railPosition,
+      coordinateLabels,
       gpuPrecision,
       gpuLimbProfile,
       paletteStops:
@@ -149,6 +163,7 @@ const FractalRoute = () => {
   const location = useLocation();
   const navigate = useNavigate();
   const { width, height } = useWindowSize();
+  const safeArea = useSafeAreaInsets();
   const [settings, dispatchSettings] = useReducer(
     settingsReducer,
     defaultSettings,
@@ -157,7 +172,8 @@ const FractalRoute = () => {
   const [interactionMode, setInteractionMode] =
     useState<InteractionMode>('grab');
   const [resetSignal, setResetSignal] = useState(0);
-  const [uiOverlayOpen, setUiOverlayOpen] = useState(false);
+  const [openPanel, setOpenPanel] = useState<PanelId | null>(null);
+  const [paletteEditorOpen, setPaletteEditorOpen] = useState(false);
   const locParam = useMemo(() => {
     if (loc) {
       return loc;
@@ -203,6 +219,12 @@ const FractalRoute = () => {
     },
     [],
   );
+  const handleTogglePanel = useCallback((panel: PanelId) => {
+    setOpenPanel((current) => (current === panel ? null : panel));
+  }, []);
+  const handleClosePanel = useCallback(() => {
+    setOpenPanel(null);
+  }, []);
   const handleResetSettings = useCallback(() => {
     dispatchSettings({ type: 'update', payload: getDefaultSettings() });
     if ('localStorage' in globalThis) {
@@ -238,6 +260,14 @@ const FractalRoute = () => {
     globalThis.localStorage.setItem('theme', theme);
   }, [theme]);
 
+  // The chrome borrows its accent from the palette, so editing the palette
+  // recolours rings, switches and the precision rule along with the fractal.
+  useEffect(() => {
+    const accent = accentFrom(settings.paletteStops, theme);
+    const root = document.documentElement;
+    root.style.setProperty('--ft-accent-rgb', formatAccentChannels(accent));
+  }, [settings.paletteStops, theme]);
+
   useEffect(() => {
     if ('localStorage' in globalThis) {
       globalThis.localStorage.setItem(
@@ -247,18 +277,46 @@ const FractalRoute = () => {
     }
   }, [settings]);
 
+  // The panel shifts the canvas rather than covering or resizing it, so opening
+  // it never hides the region being inspected and never triggers a re-render.
+  // There is no room for the shift on a phone, so below the breakpoint the
+  // panel becomes a sheet and the canvas is left where it is.
+  const usableWidth = Math.max(1, width - safeArea.left - safeArea.right);
+  const asSheet = usableWidth < SHEET_BREAKPOINT;
+  const panelInset = openPanel && !asSheet ? PANEL_WIDTH : 0;
+  const canvasWidth = Math.max(1, usableWidth - RAIL_WIDTH);
+  const canvasHeight = Math.max(1, height - safeArea.top - safeArea.bottom);
+  const visibleCanvasWidth = Math.max(1, canvasWidth - panelInset);
+  const railOnLeft = settings.railPosition === 'left';
+  const canvasOffsetLeft =
+    safeArea.left + (railOnLeft ? RAIL_WIDTH + panelInset : 0);
+  const uiOverlayOpen = paletteEditorOpen || (asSheet && openPanel !== null);
+  const shareUrl = useMemo(() => {
+    const searchParams = new URLSearchParams(location.search);
+    searchParams.delete('loc');
+    searchParams.delete('x');
+    searchParams.delete('y');
+    searchParams.delete('z');
+    const path = `/${resolvedAlgorithm}/${formatNavigation(navigation)}`;
+    const search = searchParams.toString();
+    return new URL(
+      `${path}${search ? `?${search}` : ''}${location.hash}`,
+      globalThis.location.origin,
+    ).href;
+  }, [location.hash, location.search, navigation, resolvedAlgorithm]);
+
   return (
     <>
       <a
         href='#main'
-        className='sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:left-4 focus-visible:top-4 focus-visible:z-[60] focus-visible:rounded-full focus-visible:bg-white focus-visible:px-4 focus-visible:py-2 focus-visible:text-sm focus-visible:font-semibold focus-visible:text-slate-900 focus-visible:shadow-lg dark:focus-visible:bg-slate-900 dark:focus-visible:text-white'
+        className='sr-only focus-visible:not-sr-only focus-visible:fixed focus-visible:left-4 focus-visible:top-4 focus-visible:z-[60] focus-visible:rounded-panel focus-visible:bg-void focus-visible:px-4 focus-visible:py-2 focus-visible:text-sm focus-visible:font-semibold focus-visible:text-ink focus-visible:shadow-panel'
       >
         Skip to content
       </a>
       <main
         id='main'
         tabIndex={-1}
-        className='relative h-screen w-screen overflow-hidden bg-gradient-to-br from-slate-50 via-slate-100 to-slate-200 text-slate-900 dark:from-slate-950 dark:via-slate-900 dark:to-slate-950 dark:text-slate-100'
+        className='relative h-screen w-screen overflow-hidden bg-void text-ink'
         style={{
           paddingTop: 'env(safe-area-inset-top)',
           paddingRight: 'env(safe-area-inset-right)',
@@ -266,39 +324,55 @@ const FractalRoute = () => {
           paddingLeft: 'env(safe-area-inset-left)',
         }}
       >
-        <div
-          className='pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_15%_20%,rgba(56,189,248,0.15),transparent_45%),radial-gradient(circle_at_85%_80%,rgba(14,165,233,0.12),transparent_50%)] dark:opacity-80'
-          aria-hidden
-        />
-        <SideDrawer
-          settings={settings}
-          onUpdateSettings={updateSettings}
-          onResetSettings={handleResetSettings}
-          algorithm={resolvedAlgorithm}
-          onChangeAlgorithm={handleAlgorithmChange}
-          theme={theme}
-          onToggleTheme={() =>
-            setTheme((value) => (value === 'dark' ? 'light' : 'dark'))
-          }
-          onOverlayChange={setUiOverlayOpen}
-          navigation={navigation}
-        />
-        <InteractionModeToggle
-          value={interactionMode}
-          onChange={setInteractionMode}
-          onReset={() => setResetSignal((value) => value + 1)}
-        />
         <FractalCanvas
           algorithm={resolvedAlgorithm}
           navigation={navigation}
           setNavigation={setNavigation}
-          width={width}
-          height={height}
+          width={canvasWidth}
+          visibleWidth={visibleCanvasWidth}
+          offsetLeft={canvasOffsetLeft}
+          offsetTop={safeArea.top}
+          height={canvasHeight}
           settings={settings}
           interactionMode={interactionMode}
           resetSignal={resetSignal}
           uiOverlayOpen={uiOverlayOpen}
+          onOpenPanel={setOpenPanel}
         />
+        <Rail
+          interactionMode={interactionMode}
+          onChangeInteractionMode={setInteractionMode}
+          onReset={() => setResetSignal((value) => value + 1)}
+          openPanel={openPanel}
+          onTogglePanel={handleTogglePanel}
+          theme={theme}
+          onToggleTheme={() =>
+            setTheme((value) => (value === 'dark' ? 'light' : 'dark'))
+          }
+          position={settings.railPosition}
+          safeArea={safeArea}
+          shareUrl={shareUrl}
+          onTogglePosition={() =>
+            updateSettings({ railPosition: railOnLeft ? 'right' : 'left' })
+          }
+        />
+        {openPanel && (
+          <SettingsPanel
+            panel={openPanel}
+            railPosition={settings.railPosition}
+            asSheet={asSheet}
+            safeArea={safeArea}
+            onClose={handleClosePanel}
+            settings={settings}
+            onUpdateSettings={updateSettings}
+            onResetSettings={handleResetSettings}
+            algorithm={resolvedAlgorithm}
+            onChangeAlgorithm={handleAlgorithmChange}
+            navigation={navigation}
+            onPaletteEditorOpenChange={setPaletteEditorOpen}
+            paletteEditorOpen={paletteEditorOpen}
+          />
+        )}
       </main>
     </>
   );

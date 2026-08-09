@@ -14,6 +14,13 @@ import type { FractalAlgorithm } from '../../util/fractals';
 import type { PalettePreset } from '../../util/palettes';
 import { LabelWithHelp } from './DrawerPrimitives';
 import PalettePreview from './PalettePreview';
+import { AlertIcon, LockIcon } from '../icons';
+import {
+  buttonClass,
+  inputClass,
+  primaryButtonClass,
+  smallButtonClass,
+} from './styles';
 
 type IndexedPaletteStop = PaletteStop & { index: number };
 
@@ -96,7 +103,7 @@ const PaletteEditorModal = ({
   onApply,
 }: PaletteEditorModalProps) => (
   <div
-    className='fixed inset-0 z-[60] flex items-center justify-center bg-slate-950/60 px-4 py-6 backdrop-blur-sm'
+    className='fixed inset-0 z-[60] flex items-center justify-center bg-void/80 px-4 py-6 backdrop-blur-sm'
     data-palette-editor-overlay
   >
     <div
@@ -108,16 +115,16 @@ const PaletteEditorModal = ({
       ref={modalRef}
       tabIndex={-1}
       onKeyDown={onModalKeyDown}
-      className='max-h-[90vh] w-full max-w-5xl overflow-y-auto overscroll-contain rounded-2xl border border-slate-200/70 bg-white/95 p-6 shadow-[0_20px_60px_rgba(15,23,42,0.2)] dark:border-white/10 dark:bg-slate-900/90 dark:shadow-[0_20px_60px_rgba(0,0,0,0.6)]'
+      className='max-h-[90vh] w-full max-w-5xl overflow-y-auto overscroll-contain rounded-panel border border-rule bg-panel-solid p-6 shadow-panel backdrop-blur-md'
     >
       <div className='flex items-center justify-between'>
         <div>
-          <div className='text-[11px] uppercase tracking-[0.2em] text-slate-500 dark:text-white/50'>
+          <div className='text-micro uppercase tracking-label text-dim'>
             Palette Editor
           </div>
           <div
             id='palette-editor-title'
-            className='text-lg font-semibold text-slate-900 dark:text-white'
+            className='text-lg font-semibold text-ink'
           >
             Colour Stops
           </div>
@@ -127,7 +134,7 @@ const PaletteEditorModal = ({
       <div className='mt-6 grid gap-6 lg:grid-cols-[minmax(0,1fr)_320px]'>
         <div className='space-y-4'>
           <div
-            className='relative h-10 w-full cursor-crosshair select-none overflow-hidden rounded-full border border-slate-200/70 bg-slate-200 dark:border-white/10 dark:bg-white/5'
+            className='relative h-10 w-full cursor-crosshair select-none overflow-hidden rounded-control border border-rule-strong'
             style={{ backgroundImage: paletteGradient }}
             ref={paletteBarRef}
             onClick={(event: MouseEvent<HTMLDivElement>) => {
@@ -143,10 +150,8 @@ const PaletteEditorModal = ({
             {sortedStops.map((stop) => (
               <div
                 key={`${stop.colour}-${stop.index}`}
-                className={`absolute top-1/2 h-6 w-6 -translate-y-1/2 touch-manipulation rounded-full border border-white shadow-[0_4px_12px_rgba(15,23,42,0.25)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/80 ${
-                  selectedStopIndex === stop.index
-                    ? 'ring-2 ring-cyan-400/80'
-                    : ''
+                className={`absolute top-1/2 h-6 w-6 -translate-y-1/2 touch-manipulation rounded-control border-2 border-void shadow-panel focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent ${
+                  selectedStopIndex === stop.index ? 'ring-2 ring-accent' : ''
                 }`}
                 style={{
                   left: `${stop.position * 100}%`,
@@ -191,16 +196,13 @@ const PaletteEditorModal = ({
             ))}
           </div>
 
-          <div
-            id='palette-editor-hint'
-            className='text-[11px] text-slate-500 dark:text-white/50'
-          >
+          <div id='palette-editor-hint' className='text-micro text-dim'>
             Click the bar to add a stop. Drag the dots or use arrow keys to
             reposition.
           </div>
 
-          <div className='rounded-xl border border-slate-200/70 bg-white/60 px-4 py-4 dark:border-white/10 dark:bg-white/5'>
-            <div className='text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-white/60'>
+          <div className='rounded-panel border border-rule bg-raised px-4 py-4'>
+            <div className='text-micro font-semibold uppercase tracking-label text-dim'>
               Edit Stop
             </div>
             {selectedStop ? (
@@ -216,7 +218,7 @@ const PaletteEditorModal = ({
                   <div className='flex items-center gap-2'>
                     <label
                       htmlFor='palette-stop-position'
-                      className='text-xs uppercase tracking-[0.2em] text-slate-500 dark:text-white/50'
+                      className='text-micro uppercase tracking-label text-dim'
                     >
                       Position
                     </label>
@@ -230,7 +232,7 @@ const PaletteEditorModal = ({
                       name='palette-stop-position'
                       inputMode='decimal'
                       autoComplete='off'
-                      className='w-20 rounded-lg border border-slate-200/70 bg-white px-2 py-1 text-xs text-slate-700 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/80'
+                      className={`${inputClass} w-20 px-2 py-1 text-xs`}
                       onChange={(event) => {
                         const nextValue = Number(event.target.value);
                         onStopChange(selectedStopIndex ?? 0, {
@@ -238,13 +240,11 @@ const PaletteEditorModal = ({
                         });
                       }}
                     />
-                    <span className='text-xs text-slate-500 dark:text-white/50'>
-                      %
-                    </span>
+                    <span className='text-xs text-dim'>%</span>
                   </div>
                   <button
                     type='button'
-                    className='self-start touch-manipulation rounded-md border border-slate-200/70 bg-white px-2 py-1 text-xs font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none disabled:opacity-40 dark:border-white/10 dark:bg-white/5 dark:text-white/70 dark:hover:bg-white/10'
+                    className={`${smallButtonClass} self-start`}
                     onClick={() =>
                       selectedStopIndex === null
                         ? null
@@ -257,7 +257,7 @@ const PaletteEditorModal = ({
                 </div>
               </div>
             ) : (
-              <div className='mt-3 text-[11px] text-slate-500 dark:text-white/50'>
+              <div className='mt-3 text-micro text-dim'>
                 Select a stop to edit.
               </div>
             )}
@@ -266,7 +266,7 @@ const PaletteEditorModal = ({
           <div className='space-y-2'>
             <label
               htmlFor='palette-name'
-              className='text-[11px] font-semibold uppercase tracking-[0.2em] text-slate-500 dark:text-white/60'
+              className='text-micro font-semibold uppercase tracking-label text-dim'
             >
               Palette Name
             </label>
@@ -279,43 +279,31 @@ const PaletteEditorModal = ({
               value={paletteName}
               onChange={(event) => setPaletteName(event.target.value)}
               placeholder='Custom palette…'
-              className='w-full rounded-lg border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-700 shadow-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90'
+              className={`${inputClass} font-sans`}
             />
           </div>
 
           <div className='flex flex-wrap gap-2'>
             <button
               type='button'
-              className='touch-manipulation rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
+              className={`${buttonClass} disabled:opacity-40`}
               onClick={onSave}
               disabled={saveDisabled}
             >
               Save Palette
             </button>
-            <button
-              type='button'
-              className='touch-manipulation rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
-              onClick={onSaveAs}
-            >
+            <button type='button' className={buttonClass} onClick={onSaveAs}>
               Save Palette As…
             </button>
-            <button
-              type='button'
-              className='touch-manipulation rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
-              onClick={onNew}
-            >
+            <button type='button' className={buttonClass} onClick={onNew}>
               New Palette
             </button>
-            <button
-              type='button'
-              className='touch-manipulation rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
-              onClick={onRandom}
-            >
+            <button type='button' className={buttonClass} onClick={onRandom}>
               Random Palette
             </button>
             <button
               type='button'
-              className='touch-manipulation rounded-lg border border-slate-200/70 bg-white px-3 py-1 text-[11px] font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none disabled:opacity-50 dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
+              className={`${buttonClass} disabled:opacity-40`}
               onClick={onReset}
               disabled={!paletteDraftDirty}
             >
@@ -324,14 +312,15 @@ const PaletteEditorModal = ({
           </div>
           {paletteStorageError && (
             <p
-              className='text-pretty text-xs text-rose-700 dark:text-rose-300'
+              className='inline-flex items-start gap-1.5 text-pretty text-xs text-danger'
               role='status'
               aria-live='polite'
             >
+              <AlertIcon className='mt-0.5 h-3.5 w-3.5 shrink-0' />
               {paletteStorageError}
             </p>
           )}
-          <div className='border-t border-slate-200/70 pt-4 dark:border-white/10' />
+          <div className='border-t border-rule pt-4' />
 
           <div className='space-y-2'>
             <LabelWithHelp
@@ -347,14 +336,14 @@ const PaletteEditorModal = ({
                 return (
                   <div
                     key={preset.id}
-                    className={`flex items-center gap-3 rounded-xl border px-3 py-2 ${
+                    className={`flex items-center gap-3 rounded-panel border px-3 py-2 ${
                       isEditing
-                        ? 'border-cyan-400/60 bg-cyan-50/50 dark:border-cyan-300/40 dark:bg-cyan-300/10'
-                        : 'border-slate-200/70 bg-white/70 dark:border-white/10 dark:bg-white/5'
+                        ? 'border-accent/60 bg-accent/10'
+                        : 'border-rule bg-raised'
                     }`}
                   >
                     <div
-                      className='h-5 w-28 shrink-0 rounded-lg border border-slate-200/70 bg-slate-200 dark:border-white/10 dark:bg-white/5'
+                      className='h-5 w-28 shrink-0 rounded-control border border-rule-strong'
                       style={{
                         backgroundImage: getPaletteGradient(preset.stops),
                       }}
@@ -365,21 +354,21 @@ const PaletteEditorModal = ({
                       <div className='flex min-w-0 items-center gap-2'>
                         {!isCustom && (
                           <span
-                            className='text-xs text-slate-400 dark:text-white/40'
+                            className='text-dim'
                             title='Built-in palette'
                             aria-label='Built-in palette'
                           >
-                            🔒
+                            <LockIcon className='h-3.5 w-3.5' />
                           </span>
                         )}
-                        <div className='truncate text-xs font-semibold text-slate-700 dark:text-white/90'>
+                        <div className='truncate text-xs font-medium text-ink'>
                           {preset.name}
                         </div>
                       </div>
-                      <div className='flex gap-2 text-[11px]'>
+                      <div className='flex gap-2'>
                         <button
                           type='button'
-                          className='touch-manipulation rounded-md border border-slate-200/70 bg-white px-2 py-1 font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5 dark:text-white/70 dark:hover:bg-white/10'
+                          className={smallButtonClass}
                           onClick={() => onEdit(preset)}
                           aria-label={`Edit palette ${preset.name}`}
                         >
@@ -387,7 +376,7 @@ const PaletteEditorModal = ({
                         </button>
                         <button
                           type='button'
-                          className='touch-manipulation rounded-md border border-slate-200/70 bg-white px-2 py-1 font-semibold text-slate-600 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none disabled:opacity-40 dark:border-white/10 dark:bg-white/5 dark:text-white/70 dark:hover:bg-white/10'
+                          className={smallButtonClass}
                           onClick={() => onDelete(preset.id)}
                           disabled={!isCustom}
                           aria-label={`Delete palette ${preset.name}`}
@@ -402,17 +391,17 @@ const PaletteEditorModal = ({
             </div>
           </div>
 
-          <div className='flex flex-wrap justify-end gap-2 border-t border-slate-200/70 pt-4 dark:border-white/10'>
+          <div className='flex flex-wrap justify-end gap-2 border-t border-rule pt-4'>
             <button
               type='button'
-              className='touch-manipulation rounded-lg border border-slate-200/70 bg-white px-3 py-2 text-xs font-semibold text-slate-700 shadow-sm transition hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
+              className={`${buttonClass} py-2`}
               onClick={onCancel}
             >
               Cancel
             </button>
             <button
               type='button'
-              className='touch-manipulation rounded-lg border border-cyan-500/40 bg-cyan-500/10 px-3 py-2 text-xs font-semibold text-cyan-700 shadow-sm transition hover:bg-cyan-500/20 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none disabled:opacity-50 dark:border-cyan-300/40 dark:bg-cyan-300/10 dark:text-cyan-200'
+              className={primaryButtonClass}
               onClick={onApply}
               disabled={!paletteDirty}
             >

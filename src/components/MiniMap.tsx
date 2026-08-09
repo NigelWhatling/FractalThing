@@ -142,7 +142,7 @@ const MiniMap = ({
 
   return (
     <aside
-      className='pointer-events-none fixed right-3 z-40 aspect-[8/5] w-44 overflow-hidden rounded-xl border border-white/25 bg-slate-950/75 shadow-[0_10px_30px_rgba(0,0,0,0.45)] backdrop-blur-sm sm:w-56'
+      className='pointer-events-none absolute right-3 z-40 aspect-[8/5] w-44 overflow-hidden rounded-panel border border-rule bg-panel-solid shadow-panel backdrop-blur-md sm:w-56'
       style={{ bottom: 'calc(var(--info-panel-height, 24px) + 12px)' }}
       role='img'
       aria-label={`Fractal overview. ${indicatorLabel}`}

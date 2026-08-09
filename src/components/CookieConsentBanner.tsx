@@ -8,6 +8,7 @@ import {
   type AnalyticsConsent,
 } from '../util/analytics';
 import { useGeo } from '../util/geo';
+import { RAIL_WIDTH } from '../state/ui';
 
 const CONSENT_KEY = 'fractal:analytics-consent';
 const ANALYTICS_KEY = 'fractal:analytics';
@@ -80,12 +81,17 @@ const CookieConsentBanner = () => {
     return null;
   }
 
-  const bottomOffset = 'calc(var(--info-panel-height, 28px) + 10px)';
+  const bottomOffset =
+    'calc(var(--info-panel-height, 28px) + env(safe-area-inset-bottom) + 10px)';
 
   return (
     <div
-      className='pointer-events-auto fixed left-3 right-3 z-[55] mx-auto max-w-xl rounded-2xl border border-white/10 bg-slate-950/80 px-4 py-3 text-[11px] text-white/80 shadow-[0_18px_50px_rgba(0,0,0,0.55)] backdrop-blur-md'
-      style={{ bottom: bottomOffset }}
+      className='pointer-events-auto fixed z-[55] mx-auto max-w-xl rounded-panel border border-rule bg-panel-solid px-4 py-3 text-micro text-ink shadow-panel backdrop-blur-md'
+      style={{
+        right: `calc(${RAIL_WIDTH}px + env(safe-area-inset-right) + 0.75rem)`,
+        bottom: bottomOffset,
+        left: `calc(${RAIL_WIDTH}px + env(safe-area-inset-left) + 0.75rem)`,
+      }}
       role='region'
       aria-label='Cookie consent'
     >
@@ -96,7 +102,7 @@ const CookieConsentBanner = () => {
         <div className='flex shrink-0 items-center gap-2'>
           <button
             type='button'
-            className='touch-manipulation rounded-lg border border-white/10 bg-white/10 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-white/80 transition hover:bg-white/15 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none'
+            className='touch-manipulation rounded-control border border-rule-strong bg-raised px-3 py-2 text-label font-semibold uppercase tracking-label text-dim transition hover:text-ink focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 motion-reduce:transition-none'
             onClick={() => {
               setAnalyticsConsent('no');
               setAnalyticsEnabled(false);
@@ -106,7 +112,7 @@ const CookieConsentBanner = () => {
           </button>
           <button
             type='button'
-            className='touch-manipulation rounded-lg border border-cyan-400/30 bg-cyan-400/15 px-3 py-2 text-[10px] font-semibold uppercase tracking-[0.18em] text-cyan-100 transition hover:bg-cyan-400/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none'
+            className='touch-manipulation rounded-control border border-accent/60 bg-accent/15 px-3 py-2 text-label font-semibold uppercase tracking-label text-ink transition hover:bg-accent/25 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60 motion-reduce:transition-none'
             onClick={() => {
               setAnalyticsConsent('yes');
               setAnalyticsEnabled(true);

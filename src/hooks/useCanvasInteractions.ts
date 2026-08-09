@@ -8,7 +8,7 @@ import {
   type RefObject,
   type SetStateAction,
 } from 'react';
-import type { InteractionMode } from '../components/InteractionModeToggle';
+import type { InteractionMode } from '../state/ui';
 import {
   computeViewportGeometry,
   translateNavigation,

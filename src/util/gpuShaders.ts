@@ -1,8 +1,16 @@
-export const GPU_VERTEX_SHADER = `
-  attribute vec2 a_position;
-  void main() {
-    gl_Position = vec4(a_position, 0.0, 1.0);
-  }
+/**
+ * WebGL2 / GLSL ES 3.00. The GPU path requires it: only ES 3.00 can split a
+ * float by masking mantissa bits, and without an exact split the double-single
+ * precision mode silently degrades to f32 (see `ddHighPart`). Where WebGL2 is
+ * missing the renderer reports unavailable and the app falls back to CPU.
+ *
+ * `#version` must be the first token in the source — no leading whitespace.
+ */
+export const GPU_VERTEX_SHADER = `#version 300 es
+in vec2 a_position;
+void main() {
+  gl_Position = vec4(a_position, 0.0, 1.0);
+}
 `;
 
 const segmentNames = ['lo', 'mid', 'hi', 'top'];
@@ -335,9 +343,10 @@ ${buildLimbMulSource(limbFractional, limbCount)}
       } else`
     : '';
 
-  return `
+  return `#version 300 es
   precision ${precision} float;
   precision mediump int;
+  out vec4 ftFragColour;
 
   uniform vec2 u_resolution;
   uniform float u_x0;
@@ -360,6 +369,8 @@ ${buildLimbMulSource(limbFractional, limbCount)}
   uniform float u_ditherStrength;
   uniform float u_algorithm;
   uniform float u_useDouble;
+  // Always exactly 1.0. Exists solely to be opaque to the shader compiler.
+  uniform float u_one;
   uniform vec2 u_julia;
   uniform sampler2D u_palette;
 
@@ -371,10 +382,34 @@ ${buildLimbMulSource(limbFractional, limbCount)}
     return vec2(a, 0.0);
   }
 
+  /*
+   * Dekker's classic split writes aHigh = aSplit - (aSplit - a), which is
+   * algebraically just 'a'. GLSL has no 'precise' qualifier to forbid that
+   * simplification and ANGLE/D3D11 performs it, so the low word came back as
+   * exactly zero and the whole double-single path degraded to plain f32.
+   *
+   * Masking the low mantissa bits is exact, cheap, and has no algebraic
+   * identity for the optimiser to exploit. Keeping the top 12 significand bits
+   * makes every partial product in ddMul exact in f32.
+   */
+  float ddHighPart(float a) {
+    return uintBitsToFloat(floatBitsToUint(a) & 0xfffff000u);
+  }
+
+  /*
+   * Fast2Sum, which requires the larger magnitude first. u_one is exactly 1.0
+   * at runtime but unknown at compile time, so the driver cannot prove sOpaque
+   * equals a + b and cannot fold the error to zero. Unlike the split, this fold
+   * needs to know a value rather than a structural identity, so making the
+   * value opaque is enough.
+   */
   vec2 ddTwoSum(float a, float b) {
     float s = a + b;
-    float bb = s - a;
-    float err = (a - (s - bb)) + (b - bb);
+    float sOpaque = s * u_one;
+    bool aDominates = abs(a) >= abs(b);
+    float bigger = aDominates ? a : b;
+    float smaller = aDominates ? b : a;
+    float err = (bigger - sOpaque) + smaller;
     return vec2(s, err);
   }
 
@@ -390,12 +425,9 @@ ${buildLimbMulSource(limbFractional, limbCount)}
   }
 
   vec2 ddMul(vec2 a, vec2 b) {
-    float split = 4097.0;
-    float aSplit = a.x * split;
-    float aHigh = aSplit - (aSplit - a.x);
+    float aHigh = ddHighPart(a.x);
     float aLow = a.x - aHigh;
-    float bSplit = b.x * split;
-    float bHigh = bSplit - (bSplit - b.x);
+    float bHigh = ddHighPart(b.x);
     float bLow = b.x - bHigh;
     float p = a.x * b.x;
     float err = ((aHigh * bHigh - p) + aHigh * bLow + aLow * bHigh) + aLow * bLow;
@@ -557,7 +589,7 @@ ${buildLimbMulSource(limbFractional, limbCount)}
     }
 
     if (iterCount >= u_max) {
-      gl_FragColor = vec4(0.0, 0.0, 0.0, 1.0);
+      ftFragColour = vec4(0.0, 0.0, 0.0, 1.0);
       return;
     }
 
@@ -585,9 +617,9 @@ ${buildLimbMulSource(limbFractional, limbCount)}
 
     float index = floor(scaled);
     float t = scaled - index;
-    vec4 colourA = texture2D(u_palette, vec2((index + 0.5) / u_paletteSize, 0.5));
-    vec4 colourB = texture2D(u_palette, vec2((min(index + 1.0, u_paletteSize - 1.0) + 0.5) / u_paletteSize, 0.5));
-    gl_FragColor = vec4(mix(colourA.rgb, colourB.rgb, t), 1.0);
+    vec4 colourA = texture(u_palette, vec2((index + 0.5) / u_paletteSize, 0.5));
+    vec4 colourB = texture(u_palette, vec2((min(index + 1.0, u_paletteSize - 1.0) + 0.5) / u_paletteSize, 0.5));
+    ftFragColour = vec4(mix(colourA.rgb, colourB.rgb, t), 1.0);
   }
 `;
 };

@@ -7,6 +7,12 @@ import {
   ToggleControl,
 } from './DrawerPrimitives';
 import PaletteEditor from './PaletteEditor';
+import {
+  optionClass,
+  rangeClass,
+  readoutBadgeClass,
+  selectClass,
+} from './styles';
 
 const colourModeOptions = [
   { value: 'normalize', label: 'Normalise to max' },
@@ -48,7 +54,7 @@ const ColourFilterSettings = ({
         />
         <div className='relative'>
           <select
-            className='w-full touch-manipulation appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+            className={selectClass}
             id='colour-mode-select'
             name='colour-mode'
             aria-label='Colour mode'
@@ -63,7 +69,7 @@ const ColourFilterSettings = ({
               <option
                 key={option.value}
                 value={option.value}
-                className='bg-white text-slate-900 dark:bg-slate-900 dark:text-white'
+                className={optionClass}
               >
                 {option.label}
               </option>
@@ -89,7 +95,7 @@ const ColourFilterSettings = ({
         />
         <div className='relative'>
           <select
-            className='w-full touch-manipulation appearance-none rounded-xl border border-slate-200/70 bg-white px-3 py-2 text-sm text-slate-800 shadow-sm hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 dark:border-white/10 dark:bg-white/5 dark:text-white/90 dark:hover:bg-white/10'
+            className={selectClass}
             id='filter-select'
             name='filter-mode'
             aria-label='Filters'
@@ -104,7 +110,7 @@ const ColourFilterSettings = ({
               <option
                 key={option.value}
                 value={option.value}
-                className='bg-white text-slate-900 dark:bg-slate-900 dark:text-white'
+                className={optionClass}
               >
                 {option.label}
               </option>
@@ -126,7 +132,7 @@ const ColourFilterSettings = ({
           max={1}
           step={0.05}
           value={settings.paletteSmoothness}
-          className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+          className={rangeClass}
           id='colour-blend-range'
           name='colour-blend'
           aria-label='Colour blend'
@@ -146,9 +152,7 @@ const ColourFilterSettings = ({
             tooltip='Rotates the hue of the final image.'
             htmlFor='hue-shift-range'
           />
-          <span className='rounded-lg border border-slate-200/70 bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 dark:border-white/10 dark:bg-white/10 dark:text-white/90'>
-            {settings.hueRotate}
-          </span>
+          <span className={readoutBadgeClass}>{settings.hueRotate}</span>
         </div>
         <input
           type='range'
@@ -156,7 +160,7 @@ const ColourFilterSettings = ({
           max={180}
           step={5}
           value={settings.hueRotate}
-          className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+          className={rangeClass}
           id='hue-shift-range'
           name='hue-shift'
           aria-label='Hue shift'
@@ -180,7 +184,7 @@ const ColourFilterSettings = ({
             max={2}
             step={0.1}
             value={settings.gaussianBlur}
-            className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+            className={rangeClass}
             id='gaussian-blur-range'
             name='gaussian-blur'
             aria-label='Gaussian blur strength'
@@ -205,7 +209,7 @@ const ColourFilterSettings = ({
             max={1}
             step={0.05}
             value={settings.ditherStrength}
-            className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+            className={rangeClass}
             id='dither-strength-range'
             name='dither-strength'
             aria-label='Dither strength'
@@ -230,7 +234,7 @@ const ColourFilterSettings = ({
             max={2048}
             step={64}
             value={settings.colourPeriod}
-            className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+            className={rangeClass}
             id='colour-period-range'
             name='colour-period'
             aria-label='Colour period'
