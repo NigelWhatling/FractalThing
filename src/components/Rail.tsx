@@ -172,7 +172,7 @@ const Rail = ({
               type='button'
               aria-label={`${PANEL_TITLES[panel]} settings`}
               aria-expanded={isOpen}
-              aria-controls='settings-panel'
+              aria-controls={isOpen ? 'settings-panel' : undefined}
               title={PANEL_TITLES[panel]}
               className={`${buttonClass} ${isOpen ? activeClass : ''}`}
               onClick={() => onTogglePanel(panel)}
