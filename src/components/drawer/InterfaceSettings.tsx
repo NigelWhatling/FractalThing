@@ -7,21 +7,18 @@ import {
   setAnalyticsEnabled,
 } from '../../util/analytics';
 import { ToggleControl } from './DrawerPrimitives';
+import { buttonClass } from './styles';
 
 type InterfaceSettingsProps = {
   settings: RenderSettings;
   onUpdateSettings: (payload: Partial<RenderSettings>) => void;
   onResetSettings: () => void;
-  theme: 'light' | 'dark';
-  onToggleTheme: () => void;
 };
 
 const InterfaceSettings = ({
   settings,
   onUpdateSettings,
   onResetSettings,
-  theme,
-  onToggleTheme,
 }: InterfaceSettingsProps) => {
   const [analyticsEnabled, setAnalyticsEnabledState] = useState(() =>
     isAnalyticsEnabled(),
@@ -50,17 +47,34 @@ const InterfaceSettings = ({
     <>
       <div className='space-y-3'>
         <ToggleControl
-          checked={theme === 'dark'}
-          label='Dark mode'
-          tooltip='Use the dark colour scheme for the interface.'
-          onClick={onToggleTheme}
-        />
-        <ToggleControl
           checked={settings.autoUpdateUrl}
           label='Auto update URL'
           tooltip='Keep the URL in sync with your current position and zoom.'
           onClick={() =>
             onUpdateSettings({ autoUpdateUrl: !settings.autoUpdateUrl })
+          }
+        />
+        <ToggleControl
+          checked={settings.railPosition === 'left'}
+          label='Controls on the left'
+          tooltip='Dock the control rail and its panels to the left edge instead of the right.'
+          onClick={() =>
+            onUpdateSettings({
+              railPosition: settings.railPosition === 'left' ? 'right' : 'left',
+            })
+          }
+        />
+        <ToggleControl
+          checked={settings.coordinateLabels === 'cartesian'}
+          label='Use X / Y labels'
+          tooltip='Label the coordinate readout X and Y instead of the complex-plane RE and IM.'
+          onClick={() =>
+            onUpdateSettings({
+              coordinateLabels:
+                settings.coordinateLabels === 'cartesian'
+                  ? 'complex'
+                  : 'cartesian',
+            })
           }
         />
         <ToggleControl
@@ -92,7 +106,7 @@ const InterfaceSettings = ({
       <div>
         <button
           type='button'
-          className='w-full touch-manipulation rounded-xl border border-slate-200/70 bg-white px-4 py-2.5 text-sm font-medium text-slate-700 shadow-sm transition hover:border-slate-300 hover:bg-slate-50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50 motion-reduce:transition-none dark:border-white/10 dark:bg-white/5 dark:text-white/80 dark:hover:bg-white/10'
+          className={`${buttonClass} w-full`}
           onClick={onResetSettings}
         >
           Reset to Defaults

@@ -10,11 +10,18 @@ import { useFractalRenderer } from '../hooks/useFractalRenderer';
 import type { RenderSettings } from '../state/settings';
 import type { FractalAlgorithm } from '../util/fractals';
 import InfoPanel from './InfoPanel';
-import type { InteractionMode } from './InteractionModeToggle';
+import type { InteractionMode, PanelId } from '../state/ui';
 import MiniMap from './MiniMap';
 
 type FractalCanvasProps = Readonly<{
+  /** Render surface width. Deliberately independent of the open panel. */
   width: number;
+  /**
+   * Width actually on screen. When a panel is open this is narrower than the
+   * render surface: the canvas is shifted left rather than resized, so opening
+   * a panel costs no re-render — which at 1e14 is several seconds of work.
+   */
+  visibleWidth?: number;
   height: number;
   algorithm: FractalAlgorithm;
   navigation: Navigation;
@@ -23,10 +30,16 @@ type FractalCanvasProps = Readonly<{
   interactionMode: InteractionMode;
   resetSignal?: number;
   uiOverlayOpen?: boolean;
+  /** Distance from the viewport's left edge; non-zero when the rail is left. */
+  offsetLeft?: number;
+  /** Safe distance from the viewport's top edge. */
+  offsetTop?: number;
+  onOpenPanel?: (panel: PanelId) => void;
 }>;
 
 const FractalCanvas = ({
   width,
+  visibleWidth = width,
   height,
   algorithm,
   navigation,
@@ -35,6 +48,9 @@ const FractalCanvas = ({
   interactionMode,
   resetSignal = 0,
   uiOverlayOpen = false,
+  offsetLeft = 0,
+  offsetTop = 0,
+  onOpenPanel,
 }: FractalCanvasProps) => {
   const cpuCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const gpuCanvasRef = useRef<HTMLCanvasElement | null>(null);
@@ -99,8 +115,8 @@ const FractalCanvas = ({
   return (
     <div
       ref={containerRef}
-      style={{ width, height }}
-      className='relative bg-black focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50'
+      style={{ width: visibleWidth, height, left: offsetLeft, top: offsetTop }}
+      className='unrendered absolute focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60'
       role='region'
       aria-label='Fractal canvas'
       aria-describedby='canvas-help'
@@ -113,36 +129,51 @@ const FractalCanvas = ({
         Drag to pan. Scroll or click to zoom. Use arrow keys to pan and plus or
         minus to zoom.
       </span>
-      <canvas
-        ref={cpuCanvasRef}
-        width={width}
-        height={height}
-        style={{ filter: canvasFilter }}
-        className={`absolute inset-0 touch-none bg-black ${renderer.useGpuCanvas ? 'hidden' : ''}`}
-        aria-hidden={renderer.useGpuCanvas}
-        tabIndex={-1}
-      />
-      <canvas
-        ref={gpuCanvasRef}
-        width={width}
-        height={height}
-        style={{ filter: canvasFilter }}
-        className={`absolute inset-0 touch-none bg-black ${renderer.useGpuCanvas ? '' : 'hidden'}`}
-        aria-hidden={!renderer.useGpuCanvas}
-        tabIndex={-1}
-      />
-      {interactions.selectionRect && (
-        <div
-          className='pointer-events-none absolute z-10 border border-cyan-400/70 bg-cyan-400/10 shadow-[inset_0_0_0_1px_rgba(15,23,42,0.2)] dark:border-cyan-300/70 dark:bg-cyan-300/10'
-          style={{
-            left: interactions.selectionRect.x,
-            top: interactions.selectionRect.y,
-            width: interactions.selectionRect.width,
-            height: interactions.selectionRect.height,
-          }}
-          aria-hidden
+      {/*
+        The render surface keeps its full width and slides left by half the
+        hidden strip, putting the fractal centre back in the visible centre.
+        Resizing it instead would be correct but costs a full re-render on every
+        panel open. The overhang sits under the panel, already drawn.
+      */}
+      <div
+        className='absolute left-0 top-0'
+        style={{
+          width,
+          height,
+          transform: `translateX(${-(width - visibleWidth) / 2}px)`,
+        }}
+      >
+        <canvas
+          ref={cpuCanvasRef}
+          width={width}
+          height={height}
+          style={{ filter: canvasFilter }}
+          className={`absolute inset-0 touch-none ${renderer.useGpuCanvas ? 'hidden' : ''}`}
+          aria-hidden={renderer.useGpuCanvas}
+          tabIndex={-1}
         />
-      )}
+        <canvas
+          ref={gpuCanvasRef}
+          width={width}
+          height={height}
+          style={{ filter: canvasFilter }}
+          className={`absolute inset-0 touch-none ${renderer.useGpuCanvas ? '' : 'hidden'}`}
+          aria-hidden={!renderer.useGpuCanvas}
+          tabIndex={-1}
+        />
+        {interactions.selectionRect && (
+          <div
+            className='pointer-events-none absolute z-10 border border-accent bg-accent/10'
+            style={{
+              left: interactions.selectionRect.x,
+              top: interactions.selectionRect.y,
+              width: interactions.selectionRect.width,
+              height: interactions.selectionRect.height,
+            }}
+            aria-hidden
+          />
+        )}
+      </div>
       {settings.showMinimap ? (
         <MiniMap
           algorithm={algorithm}
@@ -161,9 +192,11 @@ const FractalCanvas = ({
         isRendering={renderer.isRendering}
         maxIterations={renderer.renderedMaxIterations}
         precisionWarning={renderer.precisionWarning}
+        coordinateLabels={settings.coordinateLabels}
         renderMode={renderer.renderModeLabel}
         finalRenderMs={renderer.finalRenderMs}
         renderError={renderer.renderError}
+        onOpenPanel={onOpenPanel}
       />
     </div>
   );

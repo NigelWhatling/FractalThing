@@ -486,12 +486,12 @@ const PalettePreview = ({
 
   return (
     <div className='space-y-2'>
-      <div className='text-[11px] uppercase tracking-[0.2em] text-slate-500 dark:text-white/50'>
+      <div className='text-micro uppercase tracking-label text-dim'>
         Preview
       </div>
-      <div className='overflow-hidden rounded-2xl border border-slate-200/70 bg-slate-100 dark:border-white/10 dark:bg-white/5'>
+      <div className='overflow-hidden rounded-panel border border-rule bg-raised'>
         <div
-          className='relative w-full cursor-zoom-in touch-manipulation pb-[100%] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-cyan-400/50'
+          className='relative w-full cursor-zoom-in touch-manipulation pb-[100%] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/60'
           onClick={(event) => applyZoom(event, true)}
           onContextMenu={(event) => {
             event.preventDefault();

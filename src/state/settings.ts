@@ -21,6 +21,8 @@ export type RenderSettings = {
   workerCount: number;
   autoUpdateUrl: boolean;
   showMinimap: boolean;
+  railPosition: 'left' | 'right';
+  coordinateLabels: 'complex' | 'cartesian';
   renderBackend: 'cpu' | 'gpu';
   gpuPrecision: 'single' | 'double' | 'limb';
   gpuLimbProfile: 'balanced' | 'high' | 'extreme' | 'ultra';
@@ -52,6 +54,8 @@ export const defaultSettings: RenderSettings = {
   workerCount: getDefaultWorkerCount(),
   autoUpdateUrl: true,
   showMinimap: true,
+  railPosition: 'right',
+  coordinateLabels: 'complex',
   renderBackend: 'cpu',
   gpuPrecision: 'single',
   gpuLimbProfile: 'balanced',

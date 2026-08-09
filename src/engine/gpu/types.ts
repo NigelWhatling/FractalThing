@@ -68,7 +68,7 @@ export type WebGLRenderRequest = {
 export type WebGLRendererCapabilities = {
   available: boolean;
   contextLost: boolean;
-  webglVersion: 1;
+  webglVersion: 2;
   fragmentPrecision: WebGLFragmentPrecision | null;
   supportsSinglePrecision: boolean;
   supportsDoubleDoublePrecision: boolean;

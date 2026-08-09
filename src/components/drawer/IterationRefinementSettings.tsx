@@ -1,6 +1,7 @@
 import { useMemo } from 'react';
 import type { RenderSettings } from '../../state/settings';
 import { LabelWithHelp, ToggleControl } from './DrawerPrimitives';
+import { rangeClass, readoutBadgeClass, scaleCaptionClass } from './styles';
 
 const refinementOptions = [
   { label: 'Slow', steps: 7 },
@@ -39,9 +40,7 @@ export const IterationSettings = ({
           variant='body'
           htmlFor='iterations-range'
         />
-        <span className='rounded-lg border border-slate-200/70 bg-slate-100 px-2 py-1 text-xs font-semibold text-slate-700 dark:border-white/10 dark:bg-white/10 dark:text-white/90'>
-          {settings.maxIterations}
-        </span>
+        <span className={readoutBadgeClass}>{settings.maxIterations}</span>
       </div>
       <input
         type='range'
@@ -49,7 +48,7 @@ export const IterationSettings = ({
         max={2048}
         step={32}
         value={settings.maxIterations}
-        className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+        className={rangeClass}
         id='iterations-range'
         name='iterations'
         aria-label={
@@ -63,7 +62,7 @@ export const IterationSettings = ({
           onUpdateSettings({ maxIterations: nextValue });
         }}
       />
-      <div className='flex justify-between text-[11px] text-slate-500 dark:text-white/40'>
+      <div className={scaleCaptionClass}>
         <span>32</span>
         <span>2048</span>
       </div>
@@ -101,7 +100,7 @@ export const AutoIterationSettings = ({
             max={512}
             step={16}
             value={settings.autoIterationsScale}
-            className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+            className={rangeClass}
             id='auto-iteration-scale-range'
             name='auto-iteration-scale'
             aria-label='Auto iteration scale'
@@ -161,7 +160,7 @@ export const RefinementSettings = ({
           max={512}
           step={32}
           value={settings.tileSize}
-          className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+          className={rangeClass}
           id='tile-size-range'
           name='tile-size'
           aria-label='Tile size'
@@ -187,7 +186,7 @@ export const RefinementSettings = ({
           max={workerMax}
           step={1}
           value={settings.workerCount}
-          className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+          className={rangeClass}
           id='worker-count-range'
           name='worker-count'
           aria-label='Worker count'
@@ -199,7 +198,7 @@ export const RefinementSettings = ({
             onUpdateSettings({ workerCount: nextValue });
           }}
         />
-        <div className='flex justify-between text-[10px] uppercase tracking-[0.18em] text-slate-500 dark:text-white/40'>
+        <div className={scaleCaptionClass}>
           <span>1</span>
           <span>{workerMax}</span>
         </div>
@@ -217,7 +216,7 @@ export const RefinementSettings = ({
           max={refinementOptions.length - 1}
           step={1}
           value={refinementPreset}
-          className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+          className={rangeClass}
           id='refinement-speed-range'
           name='refinement-speed'
           aria-label='Refinement speed'
@@ -230,7 +229,7 @@ export const RefinementSettings = ({
             onUpdateSettings({ refinementStepsCount: preset.steps });
           }}
         />
-        <div className='flex justify-between text-[10px] uppercase tracking-[0.18em] text-slate-500 dark:text-white/40'>
+        <div className={scaleCaptionClass}>
           <span>Slow</span>
           <span>Fast</span>
         </div>
@@ -248,7 +247,7 @@ export const RefinementSettings = ({
           max={finalQualityOptions.length - 1}
           step={1}
           value={finalQualityPreset}
-          className='w-full touch-manipulation accent-cyan-400 dark:accent-cyan-300'
+          className={rangeClass}
           id='final-quality-range'
           name='final-quality'
           aria-label='Final quality'
@@ -261,7 +260,7 @@ export const RefinementSettings = ({
             onUpdateSettings({ finalBlockSize: option.value });
           }}
         />
-        <div className='flex justify-between text-[10px] uppercase tracking-[0.18em] text-slate-500 dark:text-white/40'>
+        <div className={scaleCaptionClass}>
           <span>Large</span>
           <span>Best</span>
         </div>
