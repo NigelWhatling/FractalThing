@@ -78,6 +78,14 @@ export const probeShaderDoubleBits = (
   const program = gl.createProgram();
   const buffer = gl.createBuffer();
   if (!program || !buffer) {
+    if (buffer) {
+      gl.deleteBuffer(buffer);
+    }
+    if (program) {
+      gl.deleteProgram(program);
+    }
+    gl.deleteShader(vertex);
+    gl.deleteShader(fragment);
     return null;
   }
 
