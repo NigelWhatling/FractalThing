@@ -2,6 +2,7 @@ import {
   GPU_VERTEX_SHADER,
   buildFragmentShaderSource,
 } from '../../util/gpuShaders';
+import { DOUBLE_SINGLE_MANTISSA_BITS } from '../precisionLimits';
 import {
   WEBGL_FIXED_PALETTE_ITERATIONS,
   WEBGL_LIMB_PROFILE_DEFINITIONS,
@@ -23,9 +24,20 @@ import {
   LIMB_COUNT,
   type LimbVectors,
 } from './limbMath';
+import {
+  probeShaderDoubleBits,
+  resolveShaderDoubleBits,
+} from './precisionProbe';
 
 const DEFAULT_JULIA = { real: -0.8, imag: 0.156 } as const;
 
+/**
+ * Timer queries differ between WebGL versions: WebGL1's
+ * `EXT_disjoint_timer_query` carries the whole API (`createQueryEXT` and
+ * friends), whereas in WebGL2 queries are core (`gl.createQuery`) and the
+ * extension supplies only the two timer constants. This is the WebGL2 shape,
+ * adapted to the call sites.
+ */
 type GpuTimerExtension = {
   TIME_ELAPSED_EXT: number;
   QUERY_RESULT_AVAILABLE_EXT: number;
@@ -36,6 +48,35 @@ type GpuTimerExtension = {
   endQueryEXT: (target: number) => void;
   getQueryObjectEXT: (query: unknown, pname: number) => number | boolean;
   deleteQueryEXT: (query: unknown) => void;
+};
+
+type TimerConstants = {
+  TIME_ELAPSED_EXT: number;
+  GPU_DISJOINT_EXT: number;
+};
+
+const createGpuTimer = (
+  gl: WebGL2RenderingContext,
+): GpuTimerExtension | null => {
+  const constants = gl.getExtension(
+    'EXT_disjoint_timer_query_webgl2',
+  ) as TimerConstants | null;
+  if (!constants) {
+    return null;
+  }
+  return {
+    TIME_ELAPSED_EXT: constants.TIME_ELAPSED_EXT,
+    GPU_DISJOINT_EXT: constants.GPU_DISJOINT_EXT,
+    QUERY_RESULT_AVAILABLE_EXT: gl.QUERY_RESULT_AVAILABLE,
+    QUERY_RESULT_EXT: gl.QUERY_RESULT,
+    createQueryEXT: () => gl.createQuery(),
+    beginQueryEXT: (target, query) =>
+      gl.beginQuery(target, query as WebGLQuery),
+    endQueryEXT: (target) => gl.endQuery(target),
+    getQueryObjectEXT: (query, pname) =>
+      gl.getQueryParameter(query as WebGLQuery, pname) as number | boolean,
+    deleteQueryEXT: (query) => gl.deleteQuery(query as WebGLQuery),
+  };
 };
 
 type UniformLocations = {
@@ -72,6 +113,7 @@ type UniformLocations = {
   ditherStrength: WebGLUniformLocation | null;
   algorithm: WebGLUniformLocation | null;
   useDouble: WebGLUniformLocation | null;
+  one: WebGLUniformLocation | null;
   useLimb: WebGLUniformLocation | null;
   julia: WebGLUniformLocation | null;
   palette: WebGLUniformLocation | null;
@@ -93,7 +135,7 @@ type PendingTimerQuery = {
 const initialCapabilities = (): WebGLRendererCapabilities => ({
   available: false,
   contextLost: false,
-  webglVersion: 1,
+  webglVersion: 2,
   fragmentPrecision: null,
   supportsSinglePrecision: false,
   supportsDoubleDoublePrecision: false,
@@ -191,7 +233,7 @@ export class WebGLRenderer {
   private readonly requestFrame: (callback: FrameRequestCallback) => number;
   private readonly cancelFrame: (handle: number) => void;
 
-  private gl: WebGLRenderingContext | null = null;
+  private gl: WebGL2RenderingContext | null = null;
   private baseProgram: ProgramBundle | null = null;
   private readonly limbPrograms = new Map<WebGLLimbProfileId, ProgramBundle>();
   private buffer: WebGLBuffer | null = null;
@@ -388,12 +430,15 @@ export class WebGLRenderer {
   };
 
   private initialise(): void {
-    const gl = this.canvas.getContext('webgl', {
+    // WebGL2 specifically: the double-single path needs GLSL ES 3.00 bit
+    // operations for an exact mantissa split. Without it the GPU backend
+    // reports unavailable and the app falls back to the CPU renderer.
+    const gl = this.canvas.getContext('webgl2', {
       preserveDrawingBuffer: true,
       antialias: false,
     });
     if (!gl) {
-      this.failInitialisation('WebGL unavailable');
+      this.failInitialisation('WebGL2 unavailable');
       return;
     }
 
@@ -402,6 +447,10 @@ export class WebGLRenderer {
         ?.precision ?? 0) > 0
         ? 'highp'
         : 'mediump';
+    const doubleDoubleMantissaBits =
+      fragmentPrecision === 'highp'
+        ? resolveShaderDoubleBits(probeShaderDoubleBits(gl))
+        : null;
     const baseProgram = this.createProgram(gl, fragmentPrecision, false);
     if (!baseProgram) {
       this.failInitialisation('Base WebGL shader failed to compile or link');
@@ -471,13 +520,7 @@ export class WebGLRenderer {
     limbPrograms.forEach((bundle, profileId) => {
       this.limbPrograms.set(profileId, bundle);
     });
-    this.timerExtension =
-      (gl.getExtension(
-        'EXT_disjoint_timer_query',
-      ) as GpuTimerExtension | null) ??
-      (gl.getExtension(
-        'EXT_disjoint_timer_query_webgl2',
-      ) as GpuTimerExtension | null);
+    this.timerExtension = createGpuTimer(gl);
 
     this.bindPaletteSampler(baseProgram);
     this.limbPrograms.forEach((bundle) => this.bindPaletteSampler(bundle));
@@ -489,10 +532,11 @@ export class WebGLRenderer {
     this.capabilities = {
       available: true,
       contextLost: false,
-      webglVersion: 1,
+      webglVersion: 2,
       fragmentPrecision,
       supportsSinglePrecision: true,
-      supportsDoubleDoublePrecision: fragmentPrecision === 'highp',
+      supportsDoubleDoublePrecision:
+        doubleDoubleMantissaBits === DOUBLE_SINGLE_MANTISSA_BITS,
       supportedLimbProfiles,
       supportsTimerQuery: Boolean(this.timerExtension),
       maxIterations: WEBGL_MAX_ITERATIONS,
@@ -521,7 +565,7 @@ export class WebGLRenderer {
   }
 
   private createProgram(
-    gl: WebGLRenderingContext,
+    gl: WebGL2RenderingContext,
     precision: WebGLFragmentPrecision,
     includeLimb: boolean,
     limbFractional = 4,
@@ -579,7 +623,7 @@ export class WebGLRenderer {
   }
 
   private createShader(
-    gl: WebGLRenderingContext,
+    gl: WebGL2RenderingContext,
     type: number,
     source: string,
   ): WebGLShader | null {
@@ -599,7 +643,7 @@ export class WebGLRenderer {
   }
 
   private buildUniforms(
-    gl: WebGLRenderingContext,
+    gl: WebGL2RenderingContext,
     program: WebGLProgram,
   ): UniformLocations {
     return {
@@ -636,6 +680,7 @@ export class WebGLRenderer {
       ditherStrength: gl.getUniformLocation(program, 'u_ditherStrength'),
       algorithm: gl.getUniformLocation(program, 'u_algorithm'),
       useDouble: gl.getUniformLocation(program, 'u_useDouble'),
+      one: gl.getUniformLocation(program, 'u_one'),
       useLimb: gl.getUniformLocation(program, 'u_useLimb'),
       julia: gl.getUniformLocation(program, 'u_julia'),
       palette: gl.getUniformLocation(program, 'u_palette'),
@@ -689,7 +734,7 @@ export class WebGLRenderer {
       request.precision === 'double' &&
       !this.capabilities.supportsDoubleDoublePrecision
     ) {
-      return 'GPU double-double precision requires fragment highp support';
+      return 'GPU double-double precision is unavailable on this WebGL implementation';
     }
     if (request.precision === 'limb') {
       const profile = getProfile(request.limbProfile);
@@ -876,6 +921,8 @@ export class WebGLRenderer {
       request.precision === 'double' ? 1 : 0,
     );
     this.setUniform1f(uniforms.useLimb, useLimb ? 1 : 0);
+    // Exactly 1.0 — see the ddTwoSum comment in the shader.
+    this.setUniform1f(uniforms.one, 1);
     this.setUniform2f(uniforms.julia, julia.real, julia.imag);
 
     let timerStarted = false;

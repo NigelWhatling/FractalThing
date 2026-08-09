@@ -24,14 +24,27 @@ import {
   decimalCoordinateToNumber,
   type Navigation,
 } from '../engine/viewport';
+import {
+  DOUBLE_SINGLE_MANTISSA_BITS,
+  FLOAT32_MANTISSA_BITS,
+  FLOAT64_MANTISSA_BITS,
+  isPrecisionExhausted,
+  limbMantissaBits,
+} from '../engine/precisionLimits';
 import type { RenderSettings } from '../state/settings';
 import { DEFAULT_JULIA, type FractalAlgorithm } from '../util/fractals';
-
-const PRECISION_EPSILON_SCALE = 512;
 
 type CanvasRef = RefObject<HTMLCanvasElement>;
 
 type GpuStatusSnapshot = Pick<WebGLRenderState, 'status' | 'message'>;
+
+export const resolveActiveRenderBackend = (
+  requestedBackend: RenderSettings['renderBackend'],
+  capabilities: Pick<WebGLRendererCapabilities, 'available'> | null,
+): RenderSettings['renderBackend'] =>
+  requestedBackend === 'gpu' && capabilities?.available === false
+    ? 'cpu'
+    : requestedBackend;
 
 export type UseFractalRendererOptions = Readonly<{
   cpuCanvasRef: CanvasRef;
@@ -108,7 +121,7 @@ const resolveGpuError = (
     settings.gpuPrecision === 'double' &&
     !capabilities.supportsDoubleDoublePrecision
   ) {
-    return 'GPU double precision requires fragment highp support';
+    return 'GPU double-double precision is unavailable on this WebGL implementation';
   }
   if (settings.gpuPrecision === 'limb') {
     if (capabilities.supportedLimbProfiles.length === 0) {
@@ -128,22 +141,32 @@ const resolveGpuError = (
   return null;
 };
 
+/**
+ * Backend badge for the readout: which path is actually evaluating pixels, and
+ * at what arithmetic width. The CPU side switches to perturbation on its own,
+ * so the label has to read the zoom rather than the settings alone.
+ */
 const resolveRenderModeLabel = (
   settings: RenderSettings,
   capabilities: WebGLRendererCapabilities | null,
+  algorithm: FractalAlgorithm,
+  zoom: number,
+  activeBackend: RenderSettings['renderBackend'],
 ): string => {
-  if (settings.renderBackend !== 'gpu') {
-    return 'CPU';
+  if (activeBackend !== 'gpu') {
+    const perturbing =
+      algorithm === 'mandelbrot' && zoom >= CPU_PERTURBATION_ZOOM_THRESHOLD;
+    return perturbing ? 'cpu · perturb' : 'cpu · f64';
   }
   const profile = getLimbProfile(settings.gpuLimbProfile);
   const baseLabel =
     settings.gpuPrecision === 'limb'
-      ? `GPU-limb ${profile.label}`
+      ? `gpu · limb×${profile.fractionalLimbs}`
       : settings.gpuPrecision === 'double'
-        ? 'GPU-dd'
-        : 'GPU';
+        ? 'gpu · f32×2'
+        : 'gpu · f32';
   return capabilities?.fragmentPrecision === 'mediump'
-    ? `${baseLabel}-med`
+    ? `${baseLabel} · med`
     : baseLabel;
 };
 
@@ -173,6 +196,10 @@ export const useFractalRenderer = ({
     status: 'idle',
     message: null,
   });
+  const activeRenderBackend = resolveActiveRenderBackend(
+    settings.renderBackend,
+    gpuCapabilities,
+  );
   const navigationXCoefficient = navigation.x.coefficient;
   const navigationXExponent = navigation.x.exponent;
   const navigationYCoefficient = navigation.y.coefficient;
@@ -342,16 +369,16 @@ export const useFractalRenderer = ({
   }, [cpuCanvasRef, settings.workerCount]);
 
   useEffect(() => {
-    if (settings.renderBackend === 'gpu') {
+    if (activeRenderBackend === 'gpu') {
       cpuRendererRef.current?.suspend('GPU renderer active');
     } else {
       latestGpuRequestRef.current = null;
       gpuRendererRef.current?.cancel('CPU renderer active');
     }
-  }, [cpuCanvasRef, gpuCanvasRef, settings.renderBackend]);
+  }, [activeRenderBackend, cpuCanvasRef, gpuCanvasRef]);
 
   useEffect(() => {
-    if (settings.renderBackend !== 'cpu') {
+    if (activeRenderBackend !== 'cpu') {
       return;
     }
     const renderer = cpuRendererRef.current;
@@ -427,7 +454,7 @@ export const useFractalRenderer = ({
     settings.colourPeriod,
     settings.finalBlockSize,
     settings.refinementStepsCount,
-    settings.renderBackend,
+    activeRenderBackend,
     settings.smooth,
     settings.tileSize,
     settings.workerCount,
@@ -435,7 +462,7 @@ export const useFractalRenderer = ({
   ]);
 
   useEffect(() => {
-    if (settings.renderBackend !== 'gpu') {
+    if (activeRenderBackend !== 'gpu') {
       return;
     }
     const renderer = gpuRendererRef.current;
@@ -491,7 +518,7 @@ export const useFractalRenderer = ({
     settings.colourPeriod,
     settings.gpuLimbProfile,
     settings.gpuPrecision,
-    settings.renderBackend,
+    activeRenderBackend,
     settings.smooth,
     width,
   ]);
@@ -500,32 +527,42 @@ export const useFractalRenderer = ({
     cpuRendererRef.current?.shift(dx, dy);
   }, []);
 
-  const useGpuCanvas = settings.renderBackend === 'gpu';
+  const useGpuCanvas = activeRenderBackend === 'gpu';
   const isRendering = useGpuCanvas ? gpuRendering : cpuRendering;
   const finalRenderMs = useGpuCanvas ? gpuFinalRenderMs : cpuFinalRenderMs;
   const gpuError = resolveGpuError(settings, gpuCapabilities, gpuStatus);
-  const renderError = useGpuCanvas ? gpuError : cpuError;
+  const renderError = useGpuCanvas
+    ? gpuError
+    : (cpuError ?? (settings.renderBackend === 'gpu' ? gpuError : null));
   const renderedMaxIterations = useGpuCanvas
     ? gpuMaxIterations
     : effectiveMaxIterations;
-  const renderModeLabel = resolveRenderModeLabel(settings, gpuCapabilities);
+  const renderModeLabel = resolveRenderModeLabel(
+    settings,
+    gpuCapabilities,
+    algorithm,
+    navigationZoom,
+    activeRenderBackend,
+  );
   const precisionWarning = useMemo(() => {
     if (
-      settings.renderBackend === 'cpu' &&
+      activeRenderBackend === 'cpu' &&
       algorithm === 'mandelbrot' &&
       navigationZoom >= CPU_PERTURBATION_ZOOM_THRESHOLD
     ) {
       return geometry.xScale === 0 || geometry.yScale === 0;
     }
     const profile = getLimbProfile(settings.gpuLimbProfile);
-    const epsilon =
-      settings.renderBackend !== 'gpu'
-        ? Number.EPSILON
+    const mantissaBits =
+      activeRenderBackend !== 'gpu'
+        ? FLOAT64_MANTISSA_BITS
         : settings.gpuPrecision === 'single'
-          ? 2 ** -23
+          ? FLOAT32_MANTISSA_BITS
           : settings.gpuPrecision === 'double'
-            ? 2 ** -46
-            : 2 ** -(profile.fractionalLimbs * 10);
+            ? gpuCapabilities?.supportsDoubleDoublePrecision
+              ? DOUBLE_SINGLE_MANTISSA_BITS
+              : FLOAT32_MANTISSA_BITS
+            : limbMantissaBits(profile.fractionalLimbs);
     const coordinateScale = Math.max(
       1,
       Math.abs(
@@ -541,10 +578,27 @@ export const useFractalRenderer = ({
         }),
       ),
     );
-    const limit = epsilon * PRECISION_EPSILON_SCALE * coordinateScale;
-    return geometry.xScale < limit || geometry.yScale < limit;
+    const orbit = {
+      zoom: navigationZoom,
+      maxIterations: effectiveMaxIterations,
+    };
+    return (
+      isPrecisionExhausted({
+        pixelScale: geometry.xScale,
+        coordinateScale,
+        mantissaBits,
+        ...orbit,
+      }) ||
+      isPrecisionExhausted({
+        pixelScale: geometry.yScale,
+        coordinateScale,
+        mantissaBits,
+        ...orbit,
+      })
+    );
   }, [
     algorithm,
+    activeRenderBackend,
     geometry.xScale,
     geometry.yScale,
     navigationXCoefficient,
@@ -554,7 +608,8 @@ export const useFractalRenderer = ({
     navigationZoom,
     settings.gpuLimbProfile,
     settings.gpuPrecision,
-    settings.renderBackend,
+    gpuCapabilities?.supportsDoubleDoublePrecision,
+    effectiveMaxIterations,
   ]);
 
   return {
