@@ -52,7 +52,7 @@ const normalizeCountry = (value) => {
   return trimmed.toUpperCase();
 };
 
-exports.handler = async (event, context) => {
+export const handler = async (event, context) => {
   // Netlify may provide geo info via context.geo or via headers, depending on runtime.
   const contextCountry =
     context?.geo?.country?.code ||
