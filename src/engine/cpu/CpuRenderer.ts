@@ -14,6 +14,13 @@ import type { DecimalCoordinate } from '../viewport';
 
 const BASE_BLOCK_SIZE = 256;
 const FIXED_PALETTE_ITERATIONS = 2048;
+const MAX_RECOLOUR_CACHE_BYTES = 32 * 1024 * 1024;
+
+// Distribution requires every escape value; other modes can recompute above this budget.
+const shouldRetainIterationBuffer = (request: CpuRenderRequest): boolean =>
+  request.colourMode === 'distribution' ||
+  request.width * request.height * Float64Array.BYTES_PER_ELEMENT <=
+    MAX_RECOLOUR_CACHE_BYTES;
 
 export const resolveCpuWorkerPerturbation = (
   request: Pick<CpuRenderRequest, 'algorithm' | 'perturbation'>,
@@ -403,7 +410,11 @@ export class CpuRenderer {
       this.completedJobs = 0;
       this.emitState('rendering');
       this.recolour(config);
-      this.completedRequest = request;
+      // A large distribution buffer can provide one last recolour before release.
+      if (!shouldRetainIterationBuffer(request)) {
+        this.iterationBuffer = null;
+      }
+      this.completedRequest = this.iterationBuffer ? request : null;
       this.reusableRequest = request;
       this.onTiming?.({
         renderId: nextRenderId,
@@ -462,6 +473,12 @@ export class CpuRenderer {
       return;
     }
     this.interruptActiveRender(reason, false);
+    this.iterationBuffer = null;
+    this.tiles.clear();
+    this.pendingPanShift = null;
+    this.reusableRequest = null;
+    this.scratchCanvas.width = 1;
+    this.scratchCanvas.height = 1;
   }
 
   public dispose(): void {
@@ -545,6 +562,10 @@ export class CpuRenderer {
   }
 
   private prepareIterationBuffer(request: CpuRenderRequest): void {
+    if (!shouldRetainIterationBuffer(request)) {
+      this.iterationBuffer = null;
+      return;
+    }
     const requiredLength = request.width * request.height;
     if (
       !this.iterationBuffer ||
@@ -764,7 +785,7 @@ export class CpuRenderer {
         (tile) => tile.stepIndex >= config.blockSteps.length,
       );
     if (allComplete) {
-      this.completedRequest = config.request;
+      this.completedRequest = this.iterationBuffer ? config.request : null;
       if (config.request.colourMode === 'distribution') {
         this.applyDistributionColouring(config);
       }
