@@ -1,4 +1,10 @@
-import { useMemo, useRef, type Dispatch, type SetStateAction } from 'react';
+import {
+  useLayoutEffect,
+  useMemo,
+  useRef,
+  type Dispatch,
+  type SetStateAction,
+} from 'react';
 import {
   calculateEffectiveMaxIterations,
   createCanvasFilter,
@@ -55,6 +61,11 @@ const FractalCanvas = ({
   const cpuCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const gpuCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  useLayoutEffect(() => {
+    if (containerRef.current) {
+      containerRef.current.inert = uiOverlayOpen;
+    }
+  }, [uiOverlayOpen]);
   const effectiveMaxIterations = useMemo(
     () =>
       calculateEffectiveMaxIterations(
@@ -121,7 +132,7 @@ const FractalCanvas = ({
       aria-label='Fractal canvas'
       aria-describedby='canvas-help'
       aria-busy={renderer.isRendering}
-      tabIndex={0}
+      tabIndex={uiOverlayOpen ? -1 : 0}
       onKeyDown={interactions.handleKeyDown}
       onBlur={interactions.handleBlur}
     >

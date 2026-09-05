@@ -72,6 +72,7 @@ export type WebGLRendererCapabilities = {
   fragmentPrecision: WebGLFragmentPrecision | null;
   supportsSinglePrecision: boolean;
   supportsDoubleDoublePrecision: boolean;
+  /** Profiles successfully compiled on demand for the current context. */
   supportedLimbProfiles: readonly WebGLLimbProfileId[];
   supportsTimerQuery: boolean;
   maxIterations: number;

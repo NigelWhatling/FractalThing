@@ -236,6 +236,7 @@ export class WebGLRenderer {
   private gl: WebGL2RenderingContext | null = null;
   private baseProgram: ProgramBundle | null = null;
   private readonly limbPrograms = new Map<WebGLLimbProfileId, ProgramBundle>();
+  private readonly failedLimbProfiles = new Set<WebGLLimbProfileId>();
   private buffer: WebGLBuffer | null = null;
   private paletteTexture: WebGLTexture | null = null;
   private timerExtension: GpuTimerExtension | null = null;
@@ -457,25 +458,9 @@ export class WebGLRenderer {
       return;
     }
 
-    const limbPrograms = new Map<WebGLLimbProfileId, ProgramBundle>();
-    if (fragmentPrecision === 'highp') {
-      for (const profile of WEBGL_LIMB_PROFILE_DEFINITIONS) {
-        const program = this.createProgram(
-          gl,
-          fragmentPrecision,
-          true,
-          profile.fractionalLimbs,
-        );
-        if (program) {
-          limbPrograms.set(profile.id, program);
-        }
-      }
-    }
-
     const buffer = gl.createBuffer();
     if (!buffer) {
       gl.deleteProgram(baseProgram.program);
-      limbPrograms.forEach((bundle) => gl.deleteProgram(bundle.program));
       this.failInitialisation('Unable to allocate the WebGL vertex buffer');
       return;
     }
@@ -490,7 +475,6 @@ export class WebGLRenderer {
     if (!paletteTexture) {
       gl.deleteBuffer(buffer);
       gl.deleteProgram(baseProgram.program);
-      limbPrograms.forEach((bundle) => gl.deleteProgram(bundle.program));
       this.failInitialisation('Unable to allocate the WebGL palette texture');
       return;
     }
@@ -517,18 +501,12 @@ export class WebGLRenderer {
     this.buffer = buffer;
     this.paletteTexture = paletteTexture;
     this.limbPrograms.clear();
-    limbPrograms.forEach((bundle, profileId) => {
-      this.limbPrograms.set(profileId, bundle);
-    });
+    this.failedLimbProfiles.clear();
     this.timerExtension = createGpuTimer(gl);
 
     this.bindPaletteSampler(baseProgram);
-    this.limbPrograms.forEach((bundle) => this.bindPaletteSampler(bundle));
     this.resize(this.canvas.width, this.canvas.height);
 
-    const supportedLimbProfiles = WEBGL_LIMB_PROFILE_DEFINITIONS.filter(
-      (profile) => this.limbPrograms.has(profile.id),
-    ).map((profile) => profile.id);
     this.capabilities = {
       available: true,
       contextLost: false,
@@ -537,7 +515,7 @@ export class WebGLRenderer {
       supportsSinglePrecision: true,
       supportsDoubleDoublePrecision:
         doubleDoubleMantissaBits === DOUBLE_SINGLE_MANTISSA_BITS,
-      supportedLimbProfiles,
+      supportedLimbProfiles: [],
       supportsTimerQuery: Boolean(this.timerExtension),
       maxIterations: WEBGL_MAX_ITERATIONS,
       unsupportedColourModes: ['distribution'],
@@ -738,7 +716,7 @@ export class WebGLRenderer {
     }
     if (request.precision === 'limb') {
       const profile = getProfile(request.limbProfile);
-      if (!this.limbPrograms.has(profile.id)) {
+      if (!this.ensureLimbProgram(profile.id)) {
         return `GPU limb profile ${profile.id} is unavailable`;
       }
       if (!this.isLimbRangeValid(request.bounds, profile.fractionalLimbs)) {
@@ -762,6 +740,37 @@ export class WebGLRenderer {
       Math.abs(y1),
     );
     return maxAbs <= maxValue;
+  }
+
+  private ensureLimbProgram(profileId: WebGLLimbProfileId): boolean {
+    if (this.limbPrograms.has(profileId)) return true;
+    const gl = this.gl;
+    if (
+      !gl ||
+      this.capabilities.fragmentPrecision !== 'highp' ||
+      this.failedLimbProfiles.has(profileId)
+    ) {
+      return false;
+    }
+    const profile = getProfile(profileId);
+    const bundle = this.createProgram(
+      gl,
+      'highp',
+      true,
+      profile.fractionalLimbs,
+    );
+    if (!bundle) {
+      this.failedLimbProfiles.add(profileId);
+      return false;
+    }
+    this.limbPrograms.set(profileId, bundle);
+    this.bindPaletteSampler(bundle);
+    this.capabilities = {
+      ...this.capabilities,
+      supportedLimbProfiles: [...this.limbPrograms.keys()],
+    };
+    this.emitCapabilities();
+    return true;
   }
 
   private uploadPalette(palette: WebGLRenderRequest['palette']): void {
@@ -1165,6 +1174,7 @@ export class WebGLRenderer {
     this.buffer = null;
     this.baseProgram = null;
     this.limbPrograms.clear();
+    this.failedLimbProfiles.clear();
     this.timerExtension = null;
     this.gl = null;
   }

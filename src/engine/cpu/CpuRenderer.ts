@@ -10,6 +10,7 @@ import type {
   CpuRenderState,
   CpuRenderSubmission,
 } from './types';
+import type { DecimalCoordinate } from '../viewport';
 
 const BASE_BLOCK_SIZE = 256;
 const FIXED_PALETTE_ITERATIONS = 2048;
@@ -51,14 +52,15 @@ const palettesEqual = (
   first: CpuRenderRequest['palette'],
   second: CpuRenderRequest['palette'],
 ): boolean =>
-  first.length === second.length &&
-  first.every(
-    (colour, index) =>
-      colour.length === second[index]?.length &&
-      colour.every((channel, channelIndex) =>
-        Object.is(channel, second[index]?.[channelIndex]),
-      ),
-  );
+  first === second ||
+  (first.length === second.length &&
+    first.every(
+      (colour, index) =>
+        colour.length === second[index]?.length &&
+        colour.every((channel, channelIndex) =>
+          Object.is(channel, second[index]?.[channelIndex]),
+        ),
+    ));
 
 export const areCpuRequestsPanReuseCompatible = (
   first: CpuRenderRequest,
@@ -84,6 +86,44 @@ export const areCpuRequestsPanReuseCompatible = (
   first.perturbation?.glitchThreshold ===
     second.perturbation?.glitchThreshold &&
   palettesEqual(first.palette, second.palette);
+
+const coordinatesEqual = (
+  first: DecimalCoordinate | undefined,
+  second: DecimalCoordinate | undefined,
+): boolean =>
+  first?.coefficient === second?.coefficient &&
+  first?.exponent === second?.exponent;
+
+/** Colour mapping can change without invalidating the completed escape values. */
+const canRecolourCpuRequest = (
+  first: CpuRenderRequest,
+  second: CpuRenderRequest,
+): boolean =>
+  areCpuRequestsPanReuseCompatible(first, {
+    ...second,
+    palette: first.palette,
+    colourMode: first.colourMode,
+    colourPeriod: first.colourPeriod,
+    ditherStrength: first.ditherStrength,
+  }) &&
+  first.bounds.x0 === second.bounds.x0 &&
+  first.bounds.y0 === second.bounds.y0 &&
+  coordinatesEqual(
+    first.perturbation?.centreReal,
+    second.perturbation?.centreReal,
+  ) &&
+  coordinatesEqual(
+    first.perturbation?.centreImag,
+    second.perturbation?.centreImag,
+  ) &&
+  coordinatesEqual(
+    first.perturbation?.originReal,
+    second.perturbation?.originReal,
+  ) &&
+  coordinatesEqual(
+    first.perturbation?.originImag,
+    second.perturbation?.originImag,
+  );
 
 export const buildCpuBlockSteps = (
   stepsCount: number,
@@ -116,13 +156,13 @@ export const buildCpuBlockSteps = (
 };
 
 export const shiftCpuValueBuffer = (
-  buffer: Float32Array,
+  buffer: Float64Array,
   dx: number,
   dy: number,
   width: number,
   height: number,
-): Float32Array => {
-  const shifted = new Float32Array(buffer.length);
+): Float64Array => {
+  const shifted = new Float64Array(buffer.length);
   shifted.fill(Number.NaN);
   for (let y = 0; y < height; y += 1) {
     const shiftedY = y + dy;
@@ -208,7 +248,8 @@ export class CpuRenderer {
   private renderId = 0;
   private completedJobs = 0;
   private finalPassStartedAt: number | null = null;
-  private distributionBuffer: Float32Array | null = null;
+  private iterationBuffer: Float64Array | null = null;
+  private completedRequest: CpuRenderRequest | null = null;
   private pendingPanShift: PanShift | null = null;
   private reusableRequest: CpuRenderRequest | null = null;
   private tileSize = 0;
@@ -255,7 +296,8 @@ export class CpuRenderer {
       this.canvas.width = nextWidth;
       this.canvas.height = nextHeight;
       this.tiles.clear();
-      this.distributionBuffer = null;
+      this.iterationBuffer = null;
+      this.completedRequest = null;
       this.pendingPanShift = null;
       this.reusableRequest = null;
     }
@@ -293,9 +335,9 @@ export class CpuRenderer {
     scratchContext.drawImage(this.canvas, 0, 0);
     this.context.clearRect(0, 0, width, height);
     this.context.drawImage(this.scratchCanvas, dx, dy);
-    if (this.distributionBuffer) {
-      this.distributionBuffer = shiftCpuValueBuffer(
-        this.distributionBuffer,
+    if (this.iterationBuffer) {
+      this.iterationBuffer = shiftCpuValueBuffer(
+        this.iterationBuffer,
         dx,
         dy,
         width,
@@ -323,13 +365,6 @@ export class CpuRenderer {
       return { renderId: nextRenderId, accepted: false, reason };
     }
     if (
-      (this.workerPoolFailed || this.workerSlots.length === 0) &&
-      !this.rebuildWorkers()
-    ) {
-      const reason = 'CPU renderer unavailable';
-      return { renderId: nextRenderId, accepted: false, reason };
-    }
-    if (
       request.width <= 0 ||
       request.height <= 0 ||
       request.maxIterations <= 0 ||
@@ -338,6 +373,55 @@ export class CpuRenderer {
       const reason = 'Invalid CPU render request';
       this.emitState('error', reason);
       return { renderId: nextRenderId, accepted: false, reason };
+    }
+
+    const blockSteps = buildCpuBlockSteps(
+      request.refinementSteps,
+      request.finalBlockSize,
+    );
+    const paletteScale =
+      request.colourMode === 'normalize' ||
+      request.colourMode === 'distribution'
+        ? (request.palette.length - 1) / request.maxIterations
+        : request.colourMode === 'cycle'
+          ? (request.palette.length - 1) / Math.max(1, request.colourPeriod)
+          : (request.palette.length - 1) / FIXED_PALETTE_ITERATIONS;
+    const config: RenderConfig = {
+      request,
+      renderId: nextRenderId,
+      blockSteps,
+      paletteScale,
+    };
+    if (
+      this.completedRequest &&
+      this.iterationBuffer &&
+      !this.pendingPanShift &&
+      canRecolourCpuRequest(this.completedRequest, request)
+    ) {
+      const startedAt = performance.now();
+      this.renderConfig = config;
+      this.completedJobs = 0;
+      this.emitState('rendering');
+      this.recolour(config);
+      this.completedRequest = request;
+      this.reusableRequest = request;
+      this.onTiming?.({
+        renderId: nextRenderId,
+        elapsedMs: Math.max(0, performance.now() - startedAt),
+      });
+      this.emitState('complete');
+      return { renderId: nextRenderId, accepted: true, reason: null };
+    }
+    this.completedRequest = null;
+    if (
+      (this.workerPoolFailed || this.workerSlots.length === 0) &&
+      !this.rebuildWorkers()
+    ) {
+      return {
+        renderId: nextRenderId,
+        accepted: false,
+        reason: 'CPU renderer unavailable',
+      };
     }
 
     if (this.renderConfig && this.hasBusyWorkers() && !this.rebuildWorkers()) {
@@ -351,25 +435,9 @@ export class CpuRenderer {
     this.pendingByTask.clear();
     this.completedJobs = 0;
     this.finalPassStartedAt = null;
-    const blockSteps = buildCpuBlockSteps(
-      request.refinementSteps,
-      request.finalBlockSize,
-    );
-    const paletteScale =
-      request.colourMode === 'normalize' ||
-      request.colourMode === 'distribution'
-        ? (request.palette.length - 1) / request.maxIterations
-        : request.colourMode === 'cycle'
-          ? (request.palette.length - 1) / Math.max(1, request.colourPeriod)
-          : (request.palette.length - 1) / FIXED_PALETTE_ITERATIONS;
-    this.renderConfig = {
-      request,
-      renderId: nextRenderId,
-      blockSteps,
-      paletteScale,
-    };
+    this.renderConfig = config;
 
-    this.prepareDistributionBuffer(request);
+    this.prepareIterationBuffer(request);
     this.prepareTiles(request, blockSteps);
     for (const tile of this.tiles.values()) {
       if (!tile.inFlight && tile.stepIndex < blockSteps.length) {
@@ -412,7 +480,8 @@ export class CpuRenderer {
     }
     this.workerSlots = [];
     this.tiles.clear();
-    this.distributionBuffer = null;
+    this.iterationBuffer = null;
+    this.completedRequest = null;
     this.pendingPanShift = null;
     this.reusableRequest = null;
     this.emitState('disposed');
@@ -475,18 +544,14 @@ export class CpuRenderer {
     this.workerSlots = [];
   }
 
-  private prepareDistributionBuffer(request: CpuRenderRequest): void {
-    if (request.colourMode !== 'distribution') {
-      this.distributionBuffer = null;
-      return;
-    }
+  private prepareIterationBuffer(request: CpuRenderRequest): void {
     const requiredLength = request.width * request.height;
     if (
-      !this.distributionBuffer ||
-      this.distributionBuffer.length !== requiredLength
+      !this.iterationBuffer ||
+      this.iterationBuffer.length !== requiredLength
     ) {
-      this.distributionBuffer = new Float32Array(requiredLength);
-      this.distributionBuffer.fill(Number.NaN);
+      this.iterationBuffer = new Float64Array(requiredLength);
+      this.iterationBuffer.fill(Number.NaN);
     }
   }
 
@@ -511,7 +576,7 @@ export class CpuRenderer {
     if (!canReuseShift || !panShift) {
       this.tiles = new Map();
       this.nextTileId = 1;
-      this.distributionBuffer?.fill(Number.NaN);
+      this.iterationBuffer?.fill(Number.NaN);
       this.addTilesForRegion(0, 0, request.width, request.height, tileSize, 0);
       return;
     }
@@ -699,6 +764,7 @@ export class CpuRenderer {
         (tile) => tile.stepIndex >= config.blockSteps.length,
       );
     if (allComplete) {
+      this.completedRequest = config.request;
       if (config.request.colourMode === 'distribution') {
         this.applyDistributionColouring(config);
       }
@@ -726,8 +792,8 @@ export class CpuRenderer {
     const palette = request.palette;
     const paletteSize = palette.length;
     const finalBlockSize = config.blockSteps[config.blockSteps.length - 1] ?? 1;
-    const distributionBuffer =
-      request.colourMode === 'distribution' ? this.distributionBuffer : null;
+    const iterationBuffer = this.iterationBuffer;
+    const imageData = context.createImageData(response.width, response.height);
     let valueIndex = 0;
 
     for (let py = 0; py < response.height; py += response.blockSize) {
@@ -737,16 +803,12 @@ export class CpuRenderer {
         const drawWidth = Math.min(response.blockSize, response.width - px);
         const drawHeight = Math.min(response.blockSize, response.height - py);
 
-        if (
-          distributionBuffer &&
-          response.blockSize === finalBlockSize &&
-          Number.isFinite(iterationValue)
-        ) {
+        if (iterationBuffer && response.blockSize === finalBlockSize) {
           const baseX = response.px + px;
           const baseY = response.py + py;
           for (let by = 0; by < drawHeight; by += 1) {
             const rowOffset = (baseY + by) * request.width + baseX;
-            distributionBuffer.fill(
+            iterationBuffer.fill(
               iterationValue,
               rowOffset,
               rowOffset + drawWidth,
@@ -762,13 +824,56 @@ export class CpuRenderer {
           paletteScale,
           paletteSize,
         );
-        context.fillStyle = `rgb(${Math.floor(rgb[0])},${Math.floor(rgb[1])},${Math.floor(rgb[2])})`;
-        context.fillRect(
-          response.px + px,
-          response.py + py,
-          drawWidth,
-          drawHeight,
-        );
+        const red = Math.floor(rgb[0]);
+        const green = Math.floor(rgb[1]);
+        const blue = Math.floor(rgb[2]);
+        for (let by = 0; by < drawHeight; by += 1) {
+          let offset = ((py + by) * response.width + px) * 4;
+          for (let bx = 0; bx < drawWidth; bx += 1) {
+            imageData.data[offset++] = red;
+            imageData.data[offset++] = green;
+            imageData.data[offset++] = blue;
+            imageData.data[offset++] = 255;
+          }
+        }
+      }
+    }
+    context.putImageData(imageData, response.px, response.py);
+  }
+
+  private recolour(config: RenderConfig): void {
+    const values = this.iterationBuffer;
+    const context = this.context;
+    if (!values || !context) return;
+    if (config.request.colourMode === 'distribution') {
+      this.applyDistributionColouring(config);
+      return;
+    }
+    const blockSize = config.blockSteps[config.blockSteps.length - 1];
+    // Paint retained pixels directly: a pan can crop a coarse block mid-sample.
+    // Reconstructing blocks from their top-left pixel would lose those boundaries.
+    for (const tile of this.tiles.values()) {
+      for (let py = tile.y; py < tile.y + tile.height; py += this.rowsPerJob) {
+        const height = Math.min(this.rowsPerJob, tile.y + tile.height - py);
+        const imageData = context.createImageData(tile.width, height);
+        let offset = 0;
+        for (let y = py; y < py + height; y += 1) {
+          for (let x = tile.x; x < tile.x + tile.width; x += 1) {
+            const rgb = this.resolveColour(
+              values[y * config.request.width + x],
+              x - ((x - tile.x) % blockSize),
+              y - ((y - tile.y) % blockSize),
+              config,
+              config.paletteScale,
+              config.request.palette.length,
+            );
+            imageData.data[offset++] = Math.floor(rgb[0]);
+            imageData.data[offset++] = Math.floor(rgb[1]);
+            imageData.data[offset++] = Math.floor(rgb[2]);
+            imageData.data[offset++] = 255;
+          }
+        }
+        context.putImageData(imageData, tile.x, py);
       }
     }
   }
@@ -809,7 +914,7 @@ export class CpuRenderer {
 
   private applyDistributionColouring(config: RenderConfig): void {
     const context = this.context;
-    const buffer = this.distributionBuffer;
+    const buffer = this.iterationBuffer;
     if (!context || !buffer) {
       return;
     }
@@ -823,10 +928,6 @@ export class CpuRenderer {
         total += 1;
       }
     }
-    if (total === 0) {
-      return;
-    }
-
     const cdf = new Float32Array(bins);
     let cumulative = 0;
     let cdfMin = 0;
@@ -835,7 +936,7 @@ export class CpuRenderer {
       if (cdfMin === 0 && cumulative > 0) {
         cdfMin = cumulative / total;
       }
-      cdf[index] = cumulative / total;
+      cdf[index] = total > 0 ? cumulative / total : 0;
     }
     const denominator = 1 - cdfMin;
     if (denominator > 0) {
@@ -887,6 +988,7 @@ export class CpuRenderer {
   }
 
   private interruptActiveRender(reason: string, keepWorkerPool = true): void {
+    this.completedRequest = null;
     const hadBusyWorkers = this.hasBusyWorkers();
     this.renderId += 1;
     this.renderConfig = null;
@@ -938,6 +1040,7 @@ export class CpuRenderer {
   }
 
   private failRender(message: string): void {
+    this.completedRequest = null;
     this.renderId += 1;
     this.renderConfig = null;
     this.jobs = [];
