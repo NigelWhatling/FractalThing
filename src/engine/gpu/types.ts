@@ -72,7 +72,8 @@ export type WebGLRendererCapabilities = {
   fragmentPrecision: WebGLFragmentPrecision | null;
   supportsSinglePrecision: boolean;
   supportsDoubleDoublePrecision: boolean;
-  supportedLimbProfiles: readonly WebGLLimbProfileId[];
+  /** Profiles successfully compiled on demand for the current context. */
+  compiledLimbProfiles: readonly WebGLLimbProfileId[];
   supportsTimerQuery: boolean;
   maxIterations: number;
   unsupportedColourModes: readonly WebGLColourMode[];

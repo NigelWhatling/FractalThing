@@ -165,7 +165,7 @@ const createRendererHarness = (
     onStateChange: (state) => states.push(state),
   });
   activeRenderers.push(renderer);
-  return { context, renderer, states, workerFactory, workers };
+  return { context, renderer, scratchCanvas, states, workerFactory, workers };
 };
 
 const lifecycleRequest = buildRequest({
@@ -197,7 +197,7 @@ describe('CPU renderer helpers', () => {
   });
 
   it('shifts retained distribution values and clears exposed pixels', () => {
-    const source = Float32Array.from([1, 2, 3, 4, 5, 6]);
+    const source = Float64Array.from([1, 2, 3, 4, 5, 6]);
     const shifted = shiftCpuValueBuffer(source, 1, 0, 3, 2);
     expect(
       Array.from(shifted, (value) => (Number.isNaN(value) ? null : value)),
@@ -294,7 +294,7 @@ describe('CPU renderer worker lifecycle', () => {
     );
     expect(workerFactory).toHaveBeenCalledTimes(2);
     expect(last(states)?.status).toBe('cancelled');
-    expect(context.fillRect).not.toHaveBeenCalled();
+    expect(context.putImageData).not.toHaveBeenCalled();
 
     const translatedRequest = buildRequest({
       ...lifecycleRequest,
@@ -307,7 +307,7 @@ describe('CPU renderer worker lifecycle', () => {
     });
 
     staleWorker?.emitMessage(createResponse(staleJob!));
-    expect(context.fillRect).not.toHaveBeenCalled();
+    expect(context.putImageData).not.toHaveBeenCalled();
     expect(last(states)).toMatchObject({
       status: 'rendering',
       completedJobs: 0,
@@ -354,5 +354,374 @@ describe('CPU renderer worker lifecycle', () => {
     workers[1]?.emitError();
     expect(onError).toHaveBeenCalledTimes(2);
     expect(workerFactory).toHaveBeenCalledTimes(2);
+  });
+});
+
+const drainWorker = (
+  worker: FakeWorker,
+  start = 0,
+  valueAt = (x: number, y: number, max: number) =>
+    (x + y) % 5 === 0 ? max : ((x + y) % 8) + 0.25,
+) => {
+  let index = start;
+  while (index < worker.postedMessages.length) {
+    if (index > 10000) throw new Error('Renderer did not complete');
+    const job = worker.postedMessages[index++];
+    const response = createResponse(job);
+    let pixel = 0;
+    for (let y = 0; y < job.height; y += job.blockSize) {
+      for (let x = 0; x < job.width; x += job.blockSize) {
+        response.values[pixel++] = valueAt(job.px + x, job.py + y, job.max);
+      }
+    }
+    worker.emitMessage(response);
+  }
+  return index;
+};
+
+const paintedPixels = (
+  context: FakeCanvasContext,
+  width: number,
+  height: number,
+) => {
+  const pixels = new Uint8ClampedArray(width * height * 4);
+  for (const [image, x, y] of context.putImageData.mock.calls) {
+    for (let row = 0; row < image.height; row += 1) {
+      pixels.set(
+        image.data.subarray(row * image.width * 4, (row + 1) * image.width * 4),
+        ((y + row) * width + x) * 4,
+      );
+    }
+  }
+  return pixels;
+};
+
+// Memory ownership is observable here without exposing controller internals in its API.
+const retainedIterationBuffer = (renderer: CpuRenderer): Float64Array | null =>
+  Reflect.get(renderer, 'iterationBuffer');
+
+describe('CPU retained-value memory budget', () => {
+  const largeRequest = {
+    ...lifecycleRequest,
+    width: 2049,
+    height: 2048,
+    tileSize: 4096,
+    finalBlockSize: 256,
+  };
+
+  it.each(['cycle', 'distribution'] as const)(
+    'releases %s values and pending pan reuse on suspension, then renders fully on resume',
+    (colourMode) => {
+      const { context, renderer, scratchCanvas, workers } =
+        createRendererHarness();
+      const request = { ...lifecycleRequest, colourMode };
+      renderer.render(request);
+      drainWorker(workers[0]);
+      expect(retainedIterationBuffer(renderer)?.byteLength).toBe(16);
+      renderer.shift(1, 0);
+      expect(scratchCanvas.width).toBe(2);
+      renderer.suspend('GPU renderer active');
+      expect(retainedIterationBuffer(renderer)?.byteLength ?? 0).toBe(0);
+      expect(scratchCanvas.width).toBe(1);
+      expect(scratchCanvas.height).toBe(1);
+      expect(workers[0].terminate).toHaveBeenCalledOnce();
+      context.putImageData.mockClear();
+      workers[0].emitMessage(createResponse(workers[0].postedMessages[0]));
+      expect(context.putImageData).not.toHaveBeenCalled();
+
+      renderer.render(request);
+      expect(workers).toHaveLength(2);
+      expect(workers[1].postedMessages[0]).toMatchObject({
+        px: 0,
+        py: 0,
+        width: 2,
+        height: 1,
+      });
+      drainWorker(workers[1]);
+      const fresh = createRendererHarness();
+      fresh.renderer.render(request);
+      drainWorker(fresh.workers[0]);
+      expect(paintedPixels(context, 2, 1)).toEqual(
+        paintedPixels(fresh.context, 2, 1),
+      );
+    },
+  );
+
+  it.each([2048, 2049])(
+    'bounds optional retention to 32 MiB at width %i',
+    (width) => {
+      const { renderer } = createRendererHarness();
+      const request = { ...largeRequest, width };
+      renderer.render(request);
+      const buffer = retainedIterationBuffer(renderer);
+      if (width === 2048) {
+        expect(buffer).toBeInstanceOf(Float64Array);
+        expect(buffer?.byteLength).toBe(32 * 1024 * 1024);
+      } else {
+        expect(buffer?.byteLength ?? 0).toBe(0);
+      }
+      renderer.render({ ...request, maxIterations: 32 });
+      expect(retainedIterationBuffer(renderer) === buffer).toBe(true);
+    },
+  );
+
+  it('recomputes and paints colour changes when a completed view exceeds the optional budget', () => {
+    const { renderer, context, states, workers } = createRendererHarness();
+    renderer.render(largeRequest);
+    const jobs = drainWorker(workers[0], 0, () => 1);
+    expect(last(states)?.status).toBe('complete');
+    expect(retainedIterationBuffer(renderer)?.byteLength ?? 0).toBe(0);
+    context.putImageData.mockClear();
+    renderer.render({
+      ...largeRequest,
+      palette: [
+        [255, 0, 0],
+        [0, 0, 255],
+      ],
+    });
+    expect(workers[0].postedMessages.length).toBeGreaterThan(jobs);
+    drainWorker(workers[0], jobs, () => 1);
+    expect(last(states)?.status).toBe('complete');
+    expect(
+      Array.from(context.putImageData.mock.calls[0][0].data.subarray(0, 4)),
+    ).toEqual([255, 0, 0, 255]);
+    expect(retainedIterationBuffer(renderer)?.byteLength ?? 0).toBe(0);
+  });
+
+  it('preserves required distribution values above the budget and releases them when leaving that mode', () => {
+    const { renderer, context, workers } = createRendererHarness();
+    const request = { ...largeRequest, colourMode: 'distribution' as const };
+    renderer.render(request);
+    const jobs = drainWorker(workers[0], 0, () => 1);
+    expect(retainedIterationBuffer(renderer)?.byteLength).toBe(2049 * 2048 * 8);
+    expect(
+      Array.from(last(context.putImageData.mock.calls)![0].data.subarray(0, 4)),
+    ).toEqual([255, 255, 255, 255]);
+
+    context.putImageData.mockClear();
+    const next = {
+      ...request,
+      colourMode: 'cycle' as const,
+      palette: [
+        [255, 0, 0],
+        [0, 0, 255],
+      ],
+    };
+    renderer.render(next);
+    // The required buffer can supply this last recolour before it is released.
+    expect(workers[0].postedMessages).toHaveLength(jobs);
+    expect(
+      Array.from(context.putImageData.mock.calls[0][0].data.subarray(0, 4)),
+    ).toEqual([255, 0, 0, 255]);
+    expect(retainedIterationBuffer(renderer)?.byteLength ?? 0).toBe(0);
+    renderer.render({ ...next, colourPeriod: 8 });
+    expect(workers[0].postedMessages.length).toBeGreaterThan(jobs);
+  });
+});
+
+describe('CPU pixel batching and recolouring', () => {
+  it('submits one image per response and retains clipped coarse blocks and black interiors', () => {
+    const { renderer, context, workers } = createRendererHarness();
+    renderer.render({
+      ...lifecycleRequest,
+      width: 3,
+      height: 3,
+      finalBlockSize: 2,
+      palette: [
+        [255, 0, 0],
+        [0, 255, 0],
+        [0, 0, 255],
+      ],
+      colourMode: 'cycle',
+      colourPeriod: 2,
+    });
+    workers[0].emitMessage({
+      ...createResponse(workers[0].postedMessages[0]),
+      values: Float64Array.from([0, 1, 2, 16]),
+    });
+    expect(context.fillRect).not.toHaveBeenCalled();
+    expect(context.putImageData).toHaveBeenCalledOnce();
+    const red = [255, 0, 0, 255],
+      green = [0, 255, 0, 255],
+      blue = [0, 0, 255, 255],
+      black = [0, 0, 0, 255];
+    expect(Array.from(paintedPixels(context, 3, 3))).toEqual([
+      ...red,
+      ...red,
+      ...green,
+      ...red,
+      ...red,
+      ...green,
+      ...blue,
+      ...blue,
+      ...black,
+    ]);
+  });
+
+  it.each(['normalize', 'cycle', 'fixed', 'distribution'] as const)(
+    'recolours %s without worker jobs and matches a fresh render',
+    (colourMode) => {
+      const initial = {
+        ...lifecycleRequest,
+        width: 33,
+        height: 17,
+        smooth: true,
+      };
+      const next = {
+        ...initial,
+        colourMode,
+        colourPeriod: 3,
+        ditherStrength: 0.8,
+        palette: [
+          [240, 10, 20],
+          [20, 250, 30],
+          [10, 20, 255],
+        ],
+      };
+      const cached = createRendererHarness();
+      cached.renderer.render(initial);
+      drainWorker(cached.workers[0]);
+      const jobCount = cached.workers[0].postedMessages.length;
+      cached.context.putImageData.mockClear();
+      expect(cached.renderer.render(next).accepted).toBe(true);
+      expect(cached.workers[0].postedMessages).toHaveLength(jobCount);
+      expect(last(cached.states)).toMatchObject({
+        status: 'complete',
+        queuedJobs: 0,
+        completedJobs: 0,
+      });
+      const fresh = createRendererHarness();
+      fresh.renderer.render(next);
+      drainWorker(fresh.workers[0]);
+      expect(paintedPixels(cached.context, 33, 17)).toEqual(
+        paintedPixels(fresh.context, 33, 17),
+      );
+    },
+  );
+
+  it('retains Float64 escape values near the iteration cap', () => {
+    const { renderer, context, workers } = createRendererHarness();
+    const request = { ...lifecycleRequest, smooth: true, maxIterations: 4096 };
+    renderer.render(request);
+    drainWorker(workers[0], 0, () => 4096 - 0.00001);
+    context.putImageData.mockClear();
+    renderer.render({
+      ...request,
+      palette: [
+        [0, 0, 0],
+        [255, 0, 0],
+      ],
+    });
+    expect(Array.from(paintedPixels(context, 2, 1))).toEqual([
+      254, 0, 0, 255, 254, 0, 0, 255,
+    ]);
+    expect(workers[0].postedMessages).toHaveLength(1);
+  });
+
+  it('keeps clipped coarse sample boundaries after panning and repeated recolouring', () => {
+    const { renderer, context, workers } = createRendererHarness();
+    const request = {
+      ...lifecycleRequest,
+      width: 4,
+      height: 1,
+      finalBlockSize: 2,
+      colourMode: 'cycle' as const,
+      colourPeriod: 2,
+      palette: [
+        [255, 0, 0],
+        [0, 255, 0],
+        [0, 0, 255],
+      ],
+    };
+    renderer.render(request);
+    drainWorker(workers[0], 0, (x) => x / 2);
+    const start = workers[0].postedMessages.length;
+    renderer.shift(-1, 0);
+    const panned = {
+      ...request,
+      bounds: {
+        ...request.bounds,
+        x0: request.bounds.x0 + request.bounds.xScale,
+      },
+    };
+    renderer.render(panned);
+    drainWorker(workers[0], start, () => 2);
+    const jobCount = workers[0].postedMessages.length;
+    context.putImageData.mockClear();
+    renderer.render({
+      ...panned,
+      palette: [
+        [200, 0, 0],
+        [0, 200, 0],
+        [0, 0, 200],
+      ],
+    });
+    renderer.render(panned);
+    expect(workers[0].postedMessages).toHaveLength(jobCount);
+    expect(Array.from(paintedPixels(context, 4, 1))).toEqual([
+      255, 0, 0, 255, 0, 255, 0, 255, 0, 255, 0, 255, 0, 0, 255, 255,
+    ]);
+  });
+
+  it('repaints an all-interior distribution view black', () => {
+    const { renderer, context, workers } = createRendererHarness();
+    renderer.render(lifecycleRequest);
+    drainWorker(workers[0], 0, (_x, _y, max) => max);
+    context.putImageData.mockClear();
+    renderer.render({ ...lifecycleRequest, colourMode: 'distribution' });
+    expect(Array.from(paintedPixels(context, 2, 1))).toEqual([
+      0, 0, 0, 255, 0, 0, 0, 255,
+    ]);
+  });
+
+  it.each([
+    { maxIterations: 32 },
+    { smooth: true },
+    { algorithm: 'tricorn' },
+    { julia: { real: 0.1, imag: 0.2 } },
+    { width: 3 },
+    { height: 2 },
+    { finalBlockSize: 2 },
+    { refinementSteps: 3 },
+    { tileSize: 64 },
+    { bounds: { ...lifecycleRequest.bounds, x0: -1 } },
+    { bounds: { ...lifecycleRequest.bounds, y0: 1 } },
+    { bounds: { ...lifecycleRequest.bounds, xScale: 0.25 } },
+  ] satisfies Partial<CpuRenderRequest>[])(
+    'invalidates escape values when computation inputs change: %j',
+    (change) => {
+      const { renderer, workers, states } = createRendererHarness();
+      renderer.render(lifecycleRequest);
+      drainWorker(workers[0]);
+      const jobCount = workers[0].postedMessages.length;
+      renderer.render({ ...lifecycleRequest, ...change });
+      expect(workers[0].postedMessages.length).toBeGreaterThan(jobCount);
+      expect(last(states)?.status).toBe('rendering');
+    },
+  );
+
+  it('invalidates a precise origin change even when Float64 bounds are unchanged', () => {
+    const { renderer, workers } = createRendererHarness();
+    const origin = parseDecimalCoordinate('-0.75000000000000000001');
+    const request = {
+      ...lifecycleRequest,
+      perturbation: {
+        centreReal: origin,
+        centreImag: origin,
+        originReal: origin,
+        originImag: origin,
+        zoom: 1e20,
+      },
+    };
+    renderer.render(request);
+    drainWorker(workers[0]);
+    renderer.render({
+      ...request,
+      perturbation: {
+        ...request.perturbation,
+        originReal: parseDecimalCoordinate('-0.75000000000000000002'),
+      },
+    });
+    expect(workers[0].postedMessages).toHaveLength(2);
   });
 });

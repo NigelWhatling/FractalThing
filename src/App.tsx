@@ -54,6 +54,11 @@ import { applySeo, buildSeoPayload } from './util/seo';
 import { formatNavigation, navigationFromView } from './engine/viewport';
 import { useFractalNavigation } from './hooks/useFractalNavigation';
 import { useSafeAreaInsets } from './hooks/useSafeAreaInsets';
+import {
+  readStoredValue,
+  removeStoredValue,
+  writeStoredValue,
+} from './util/storage';
 
 type WindowSize = {
   width: number;
@@ -74,8 +79,7 @@ const getDefaultSettings = (): RenderSettings => ({
 
 const loadStoredSettings = (): RenderSettings => {
   const base = getDefaultSettings();
-  if (!('localStorage' in globalThis)) return base;
-  const raw = globalThis.localStorage.getItem(SETTINGS_STORAGE_KEY);
+  const raw = readStoredValue(SETTINGS_STORAGE_KEY);
   if (!raw) {
     return base;
   }
@@ -204,8 +208,7 @@ const FractalRoute = () => {
   });
   const isRootRoute = !algorithm;
   const [theme, setTheme] = useState<ThemeMode>(() => {
-    if (!('localStorage' in globalThis)) return 'dark';
-    const stored = globalThis.localStorage.getItem('theme');
+    const stored = readStoredValue('theme');
     if (stored === 'light' || stored === 'dark') {
       return stored;
     }
@@ -227,9 +230,7 @@ const FractalRoute = () => {
   }, []);
   const handleResetSettings = useCallback(() => {
     dispatchSettings({ type: 'update', payload: getDefaultSettings() });
-    if ('localStorage' in globalThis) {
-      globalThis.localStorage.removeItem(SETTINGS_STORAGE_KEY);
-    }
+    removeStoredValue(SETTINGS_STORAGE_KEY);
   }, []);
 
   const handleAlgorithmChange = useCallback(
@@ -257,7 +258,7 @@ const FractalRoute = () => {
     const isDark = theme === 'dark';
     root.classList.toggle('dark', isDark);
     root.style.colorScheme = theme;
-    globalThis.localStorage.setItem('theme', theme);
+    writeStoredValue('theme', theme);
   }, [theme]);
 
   // The chrome borrows its accent from the palette, so editing the palette
@@ -269,12 +270,7 @@ const FractalRoute = () => {
   }, [settings.paletteStops, theme]);
 
   useEffect(() => {
-    if ('localStorage' in globalThis) {
-      globalThis.localStorage.setItem(
-        SETTINGS_STORAGE_KEY,
-        JSON.stringify(settings),
-      );
-    }
+    writeStoredValue(SETTINGS_STORAGE_KEY, JSON.stringify(settings));
   }, [settings]);
 
   // The panel shifts the canvas rather than covering or resizing it, so opening

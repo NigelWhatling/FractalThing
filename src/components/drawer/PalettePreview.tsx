@@ -11,7 +11,12 @@ import {
   CPU_PERTURBATION_ZOOM_THRESHOLD,
   resolveCpuPalettePosition,
 } from '../../engine/cpu';
-import { WebGLRenderer, type WebGLRenderRequest } from '../../engine/gpu';
+import {
+  WebGLRenderer,
+  type WebGLRenderRequest,
+  type WebGLRendererCapabilities,
+} from '../../engine/gpu';
+import { resolveActiveRenderBackend } from '../../engine/renderBackend';
 import {
   computeViewportGeometry,
   translateNavigation,
@@ -65,12 +70,16 @@ const PalettePreview = ({
   );
   const [navState, setNavState] = useState<Navigation>(() => navigation);
   const [previewData, setPreviewData] = useState<PreviewData | null>(null);
+  const [gpuCapabilities, setGpuCapabilities] =
+    useState<WebGLRendererCapabilities | null>(null);
   const navXCoefficient = navState.x.coefficient;
   const navXExponent = navState.x.exponent;
   const navYCoefficient = navState.y.coefficient;
   const navYExponent = navState.y.exponent;
   const navZoom = navState.z;
-  const useGpuPreview = settings.renderBackend === 'gpu';
+  const useGpuPreview =
+    resolveActiveRenderBackend(settings.renderBackend, gpuCapabilities) ===
+    'gpu';
   const previewPalette = useMemo(
     () => createRenderPalette(paletteStops, settings.paletteSmoothness),
     [paletteStops, settings.paletteSmoothness],
@@ -216,14 +225,17 @@ const PalettePreview = ({
   ]);
 
   useEffect(() => {
-    if (!useGpuPreview || !gpuCanvasRef.current) {
+    if (settings.renderBackend !== 'gpu' || !gpuCanvasRef.current) {
       return;
     }
     let receivedCapabilities = false;
     let wasAvailable = false;
+    let active = true;
     const renderer = new WebGLRenderer(gpuCanvasRef.current, {
       restoreLastRender: false,
       onCapabilitiesChange: (capabilities) => {
+        if (!active) return;
+        setGpuCapabilities(capabilities);
         const contextRestored =
           receivedCapabilities && !wasAvailable && capabilities.available;
         receivedCapabilities = true;
@@ -241,13 +253,14 @@ const PalettePreview = ({
     });
     gpuRendererRef.current = renderer;
     return () => {
+      active = false;
       if (gpuRendererRef.current === renderer) {
         gpuRendererRef.current = null;
         latestGpuRequestRef.current = null;
       }
       renderer.dispose();
     };
-  }, [useGpuPreview]);
+  }, [settings.renderBackend]);
 
   useEffect(() => {
     const renderer = gpuRendererRef.current;

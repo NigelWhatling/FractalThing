@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { resolveActiveRenderBackend } from './useFractalRenderer';
+import { resolveActiveRenderBackend } from '../engine/renderBackend';
 
 describe('resolveActiveRenderBackend', () => {
   it('keeps GPU active while capabilities are pending or available', () => {

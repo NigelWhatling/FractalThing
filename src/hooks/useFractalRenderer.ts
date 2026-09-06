@@ -33,18 +33,11 @@ import {
 } from '../engine/precisionLimits';
 import type { RenderSettings } from '../state/settings';
 import { DEFAULT_JULIA, type FractalAlgorithm } from '../util/fractals';
+import { resolveActiveRenderBackend } from '../engine/renderBackend';
 
 type CanvasRef = RefObject<HTMLCanvasElement>;
 
 type GpuStatusSnapshot = Pick<WebGLRenderState, 'status' | 'message'>;
-
-export const resolveActiveRenderBackend = (
-  requestedBackend: RenderSettings['renderBackend'],
-  capabilities: Pick<WebGLRendererCapabilities, 'available'> | null,
-): RenderSettings['renderBackend'] =>
-  requestedBackend === 'gpu' && capabilities?.available === false
-    ? 'cpu'
-    : requestedBackend;
 
 export type UseFractalRendererOptions = Readonly<{
   cpuCanvasRef: CanvasRef;
@@ -122,14 +115,6 @@ const resolveGpuError = (
     !capabilities.supportsDoubleDoublePrecision
   ) {
     return 'GPU double-double precision is unavailable on this WebGL implementation';
-  }
-  if (settings.gpuPrecision === 'limb') {
-    if (capabilities.supportedLimbProfiles.length === 0) {
-      return 'GPU limb shaders unavailable';
-    }
-    if (!capabilities.supportedLimbProfiles.includes(settings.gpuLimbProfile)) {
-      return 'Limb profile unsupported';
-    }
   }
   if (
     gpuStatus.status === 'error' ||
@@ -251,10 +236,7 @@ export const useFractalRenderer = ({
 
   useEffect(() => {
     let active = true;
-    let receivedGpuCapabilities = false;
-    let gpuWasAvailable = false;
     const cpuCanvas = cpuCanvasRef.current;
-    const gpuCanvas = gpuCanvasRef.current;
     const cpuRenderer = cpuCanvas
       ? new CpuRenderer(cpuCanvas, {
           workerCount: latestWorkerCount.current,
@@ -287,6 +269,20 @@ export const useFractalRenderer = ({
           },
         })
       : null;
+    cpuRendererRef.current = cpuRenderer;
+    return () => {
+      active = false;
+      cpuRendererRef.current = null;
+      cpuRenderer?.dispose();
+    };
+  }, [cpuCanvasRef, latestWorkerCount]);
+
+  useEffect(() => {
+    if (settings.renderBackend !== 'gpu') return;
+    let active = true;
+    let receivedGpuCapabilities = false;
+    let gpuWasAvailable = false;
+    const gpuCanvas = gpuCanvasRef.current;
     const gpuRenderer = gpuCanvas
       ? new WebGLRenderer(gpuCanvas, {
           restoreLastRender: false,
@@ -342,22 +338,17 @@ export const useFractalRenderer = ({
         })
       : null;
 
-    cpuRendererRef.current = cpuRenderer;
     gpuRendererRef.current = gpuRenderer;
 
     return () => {
       active = false;
-      if (cpuRendererRef.current === cpuRenderer) {
-        cpuRendererRef.current = null;
-      }
       if (gpuRendererRef.current === gpuRenderer) {
         gpuRendererRef.current = null;
         latestGpuRequestRef.current = null;
       }
-      cpuRenderer?.dispose();
       gpuRenderer?.dispose();
     };
-  }, [cpuCanvasRef, gpuCanvasRef, latestWorkerCount]);
+  }, [gpuCanvasRef, settings.renderBackend]);
 
   useEffect(() => {
     cpuRendererRef.current?.resize(width, height);

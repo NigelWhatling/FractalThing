@@ -1,6 +1,7 @@
 import {
   useCallback,
   useEffect,
+  useLayoutEffect,
   useRef,
   useState,
   type Dispatch,
@@ -112,7 +113,7 @@ export const useCanvasInteractions = ({
     interactionModeRef.current = interactionMode;
   }, [interactionMode]);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     overlayOpenRef.current = uiOverlayOpen;
   }, [uiOverlayOpen]);
 
@@ -204,6 +205,8 @@ export const useCanvasInteractions = ({
     gpuCanvasRef,
     interactionMode,
     resetSignal,
+    uiOverlayOpen,
+    useGpuCanvas,
   ]);
 
   useEffect(() => {
@@ -213,7 +216,7 @@ export const useCanvasInteractions = ({
     }
 
     const handlePointerDown = (event: PointerEvent) => {
-      if (event.button !== 0) {
+      if (overlayOpenRef.current || event.button !== 0) {
         return;
       }
       if (!overlayOpenRef.current) {
@@ -390,6 +393,7 @@ export const useCanvasInteractions = ({
     };
 
     const handleClick = (event: MouseEvent) => {
+      if (overlayOpenRef.current) return;
       if (suppressClickRef.current) {
         suppressClickRef.current = false;
         return;
@@ -398,6 +402,7 @@ export const useCanvasInteractions = ({
     };
 
     const handleWheel = (event: WheelEvent) => {
+      if (overlayOpenRef.current) return;
       event.preventDefault();
       zoomAt(event.offsetX, event.offsetY, event.deltaY < 0);
     };
@@ -433,6 +438,7 @@ export const useCanvasInteractions = ({
 
   const handleKeyDown = useCallback(
     (event: ReactKeyboardEvent<HTMLDivElement>) => {
+      if (overlayOpenRef.current) return;
       const current = navigationRef.current;
       const geometry = computeViewportGeometry(current, width, height);
       const panPixels = event.shiftKey ? 80 : 40;
