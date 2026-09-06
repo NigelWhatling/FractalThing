@@ -116,14 +116,6 @@ const resolveGpuError = (
   ) {
     return 'GPU double-double precision is unavailable on this WebGL implementation';
   }
-  if (settings.gpuPrecision === 'limb') {
-    if (capabilities.supportedLimbProfiles.length === 0) {
-      return 'GPU limb shaders unavailable';
-    }
-    if (!capabilities.supportedLimbProfiles.includes(settings.gpuLimbProfile)) {
-      return 'Limb profile unsupported';
-    }
-  }
   if (
     gpuStatus.status === 'error' ||
     gpuStatus.status === 'context-lost' ||

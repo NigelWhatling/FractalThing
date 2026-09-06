@@ -37,7 +37,7 @@ const capabilities = (available: boolean): WebGLRendererCapabilities => ({
   fragmentPrecision: 'highp',
   supportsSinglePrecision: true,
   supportsDoubleDoublePrecision: true,
-  supportedLimbProfiles: [],
+  compiledLimbProfiles: [],
   supportsTimerQuery: false,
   maxIterations: 4096,
   unsupportedColourModes: ['distribution'],
@@ -85,13 +85,19 @@ const palette = [
   [255, 255, 255],
 ];
 let result: FractalRendererResult;
-const Harness = ({ backend }: { backend: 'cpu' | 'gpu' }) => {
+const Harness = ({
+  backend,
+  gpuPrecision = 'single',
+}: {
+  backend: 'cpu' | 'gpu';
+  gpuPrecision?: 'single' | 'double' | 'limb';
+}) => {
   const snapshot = useFractalRenderer({
     cpuCanvasRef,
     gpuCanvasRef,
     width: 32,
     height: 32,
-    settings: { ...defaultSettings, renderBackend: backend },
+    settings: { ...defaultSettings, renderBackend: backend, gpuPrecision },
     algorithm: 'mandelbrot',
     navigation,
     palette,
@@ -166,6 +172,38 @@ describe('renderer lifecycles', () => {
     });
     expect(result.useGpuCanvas).toBe(true);
     expect(mocks.gpu[0].render.mock.calls.length).toBeGreaterThan(renders);
+  });
+
+  it('waits for a limb compilation attempt before reporting profile failure', () => {
+    act(() => {
+      trees.push(
+        create(
+          createElement(Harness, {
+            backend: 'gpu',
+            gpuPrecision: 'limb',
+          }),
+        ),
+      );
+    });
+    expect(mocks.gpu[0].render).toHaveBeenCalledWith(
+      expect.objectContaining({
+        precision: 'limb',
+        limbProfile: defaultSettings.gpuLimbProfile,
+      }),
+    );
+    expect(result.renderError).toBeNull();
+
+    act(() =>
+      mocks.gpu[0].options.onStateChange?.({
+        renderId: 1,
+        status: 'error',
+        passIndex: 0,
+        passCount: 0,
+        iterationCap: null,
+        message: 'GPU limb profile balanced is unavailable',
+      }),
+    );
+    expect(result.renderError).toBe('GPU limb profile balanced is unavailable');
   });
 
   it('keeps a CPU palette preview visible while GPU is unavailable and recovers on restoration', async () => {

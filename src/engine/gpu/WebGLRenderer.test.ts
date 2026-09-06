@@ -100,7 +100,7 @@ describe('on-demand WebGL precision programs', () => {
   it('compiles only the base program initially and caches each requested limb profile', () => {
     const { renderer, gl } = createHarness();
     expect(gl.createProgram).toHaveBeenCalledOnce();
-    expect(renderer.getCapabilities().supportedLimbProfiles).toEqual([]);
+    expect(renderer.getCapabilities().compiledLimbProfiles).toEqual([]);
     expect(renderer.render(request).accepted).toBe(true);
     expect(gl.createProgram).toHaveBeenCalledOnce();
     expect(
@@ -115,7 +115,7 @@ describe('on-demand WebGL precision programs', () => {
     expect(gl.createProgram).toHaveBeenCalledTimes(2);
     renderer.render({ ...request, precision: 'limb', limbProfile: 'high' });
     expect(gl.createProgram).toHaveBeenCalledTimes(3);
-    expect(renderer.getCapabilities().supportedLimbProfiles).toEqual([
+    expect(renderer.getCapabilities().compiledLimbProfiles).toEqual([
       'balanced',
       'high',
     ]);
@@ -156,7 +156,7 @@ describe('on-demand WebGL precision programs', () => {
     expect(lost.defaultPrevented).toBe(true);
     expect(renderer.getCapabilities().available).toBe(false);
     canvas.dispatchEvent(new Event('webglcontextrestored'));
-    expect(renderer.getCapabilities().supportedLimbProfiles).toEqual([]);
+    expect(renderer.getCapabilities().compiledLimbProfiles).toEqual([]);
     expect(gl.createProgram).toHaveBeenCalledTimes(3);
     expect(renderer.render(limb).accepted).toBe(true);
     expect(gl.createProgram).toHaveBeenCalledTimes(4);

@@ -139,7 +139,7 @@ const initialCapabilities = (): WebGLRendererCapabilities => ({
   fragmentPrecision: null,
   supportsSinglePrecision: false,
   supportsDoubleDoublePrecision: false,
-  supportedLimbProfiles: [],
+  compiledLimbProfiles: [],
   supportsTimerQuery: false,
   maxIterations: WEBGL_MAX_ITERATIONS,
   unsupportedColourModes: ['distribution'],
@@ -159,7 +159,7 @@ const cloneCapabilities = (
   capabilities: WebGLRendererCapabilities,
 ): WebGLRendererCapabilities => ({
   ...capabilities,
-  supportedLimbProfiles: [...capabilities.supportedLimbProfiles],
+  compiledLimbProfiles: [...capabilities.compiledLimbProfiles],
   unsupportedColourModes: [...capabilities.unsupportedColourModes],
 });
 
@@ -515,7 +515,7 @@ export class WebGLRenderer {
       supportsSinglePrecision: true,
       supportsDoubleDoublePrecision:
         doubleDoubleMantissaBits === DOUBLE_SINGLE_MANTISSA_BITS,
-      supportedLimbProfiles: [],
+      compiledLimbProfiles: [],
       supportsTimerQuery: Boolean(this.timerExtension),
       maxIterations: WEBGL_MAX_ITERATIONS,
       unsupportedColourModes: ['distribution'],
@@ -767,7 +767,7 @@ export class WebGLRenderer {
     this.bindPaletteSampler(bundle);
     this.capabilities = {
       ...this.capabilities,
-      supportedLimbProfiles: [...this.limbPrograms.keys()],
+      compiledLimbProfiles: [...this.limbPrograms.keys()],
     };
     this.emitCapabilities();
     return true;
